@@ -317,9 +317,16 @@ export async function doSetup(args) {
   let location = args.location || "";
 
   if (!location && args.yes)
-    location = existing.found ? existing.location : projectRoot ? "project-local" : "global";
+    location = existing.found ? existing.location : "env";
   if (!location) {
-    const options = [];
+    const shellRc = detectShellRc();
+    const options = [
+      {
+        value: "env",
+        label: "Shell environment",
+        hint: `${shellRc} (recommended)`,
+      },
+    ];
     if (projectRoot) {
       options.push(
         {
@@ -334,25 +341,14 @@ export async function doSetup(args) {
         }
       );
     }
-    options.push(
-      {
-        value: "global",
-        label: "All my projects",
-        hint: "~/.claude/settings.json",
-      },
-      {
-        value: "env",
-        label: "Shell environment",
-        hint: detectShellRc(),
-      }
-    );
+    options.push({
+      value: "global",
+      label: "All my projects",
+      hint: "~/.claude/settings.json",
+    });
 
-    // Pre-select existing location, or project-local if in a project
-    const defaultLoc = existing.found
-      ? existing.location
-      : projectRoot
-        ? "project-local"
-        : "global";
+    // Pre-select existing location, or env by default
+    const defaultLoc = existing.found ? existing.location : "env";
 
     location = await p.select({
       message: "Where should we save the config?",
@@ -568,6 +564,7 @@ export async function doSetup(args) {
         "Next step"
       );
     } else {
+      // Write config to settings.json
       const envPairs = {
         ANTHROPIC_BASE_URL: gateway,
         ANTHROPIC_AUTH_TOKEN: portkeyKey,
@@ -581,7 +578,44 @@ export async function doSetup(args) {
       settingsSetEnv(targetFile, envPairs);
       if (model) settingsSetKey(targetFile, "model", model);
       ok(`Updated ${targetFile}`);
-      dim("Open a new terminal, then run: claude");
+
+      // Also write ANTHROPIC_AUTH_TOKEN to shell RC so Claude Code
+      // skips the OAuth login gate (it checks env before reading settings.json)
+      const shellRc = detectShellRc();
+      const isFish = shellRc.endsWith("config.fish");
+      const isPwsh = shellRc.endsWith(".ps1");
+      const isNu = shellRc.endsWith(".nu");
+
+      let exportLine;
+      if (isFish) {
+        exportLine = `set -gx ANTHROPIC_AUTH_TOKEN "${portkeyKey}"`;
+      } else if (isPwsh) {
+        exportLine = `$env:ANTHROPIC_AUTH_TOKEN = "${portkeyKey}"`;
+      } else if (isNu) {
+        exportLine = `$env.ANTHROPIC_AUTH_TOKEN = "${portkeyKey}"`;
+      } else {
+        exportLine = `export ANTHROPIC_AUTH_TOKEN="${portkeyKey}"`;
+      }
+
+      const shellBlock = [
+        `# ── Portkey + Claude Code (v${VERSION}) ──`,
+        exportLine,
+        "# ── End Portkey + Claude Code ──",
+      ].join("\n");
+
+      writeShellRc(shellRc, shellBlock);
+      ok(`Also added ANTHROPIC_AUTH_TOKEN to ${shellRc}`);
+
+      let reloadHint;
+      if (isPwsh) {
+        reloadHint = `. ${shellRc}`;
+      } else {
+        reloadHint = `source ${shellRc}`;
+      }
+      p.note(
+        `Open a new terminal, or run:\n\n  ${reloadHint}`,
+        "Next step"
+      );
     }
   }
 
