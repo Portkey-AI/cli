@@ -1,0 +1,38 @@
+{
+  "name": "portkey",
+  "version": "1.0.0",
+  "description": "The Portkey CLI — manage AI gateway integrations for Claude Code, and more.",
+  "main": "src/index.js",
+  "bin": {
+    "portkey": "src/index.js"
+  },
+  "files": [
+    "src/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node src/index.js",
+    "setup": "node src/index.js setup",
+    "discover": "node src/index.js discover",
+    "verify": "node src/index.js verify"
+  },
+  "keywords": ["portkey", "claude-code", "anthropic", "ai-gateway", "cli"],
+  "author": "Portkey",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/portkey-ai/cli.git"
+  },
+  "homepage": "https://portkey.ai/docs",
+  "bugs": {
+    "url": "https://github.com/portkey-ai/cli/issues"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.0.0"
+  }
+}
