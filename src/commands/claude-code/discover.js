@@ -171,8 +171,10 @@ export async function doDiscover() {
 
   if (base === PORTKEY_GATEWAY) {
     healthLines.push(`${c.green}✔${c.reset} ANTHROPIC_BASE_URL → Portkey gateway`);
+  } else if (base && base.includes("portkey")) {
+    healthLines.push(`${c.green}✔${c.reset} ANTHROPIC_BASE_URL → ${base} (custom gateway)`);
   } else if (base) {
-    healthLines.push(`${c.red}✘${c.reset} ANTHROPIC_BASE_URL = ${base} (not Portkey)`);
+    healthLines.push(`${c.yellow}⚠${c.reset} ANTHROPIC_BASE_URL = ${base} (not a recognized Portkey URL)`);
   } else {
     healthLines.push(`${c.red}✘${c.reset} ANTHROPIC_BASE_URL is not set anywhere`);
   }

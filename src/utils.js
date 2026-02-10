@@ -106,14 +106,52 @@ export function findProjectRoot(startDir = process.cwd()) {
 }
 
 export function detectShellRc() {
-  const shell = path.basename(process.env.SHELL || "/bin/bash").toLowerCase();
   const home = os.homedir();
+
+  // On Windows, $SHELL is usually not set
+  if (process.platform === "win32") {
+    // Check for PowerShell profile
+    const pwshProfile = path.join(
+      home,
+      "Documents",
+      "PowerShell",
+      "Microsoft.PowerShell_profile.ps1"
+    );
+    const wpwshProfile = path.join(
+      home,
+      "Documents",
+      "WindowsPowerShell",
+      "Microsoft.PowerShell_profile.ps1"
+    );
+    if (fs.existsSync(pwshProfile)) return pwshProfile;
+    if (fs.existsSync(wpwshProfile)) return wpwshProfile;
+    // Git Bash on Windows
+    const bashrc = path.join(home, ".bashrc");
+    if (fs.existsSync(bashrc)) return bashrc;
+    // Default to PowerShell Core profile
+    return pwshProfile;
+  }
+
+  const shell = path.basename(process.env.SHELL || "").toLowerCase();
   switch (shell) {
     case "zsh":
       return path.join(home, ".zshrc");
     case "fish":
       return path.join(home, ".config", "fish", "config.fish");
+    case "nu":
+    case "nushell":
+      return path.join(home, ".config", "nushell", "env.nu");
+    case "pwsh":
+    case "powershell":
+      // PowerShell on macOS/Linux
+      return path.join(home, ".config", "powershell", "Microsoft.PowerShell_profile.ps1");
+    case "bash":
+      // Prefer .bashrc, fall back to .bash_profile on macOS
+      if (fs.existsSync(path.join(home, ".bashrc")))
+        return path.join(home, ".bashrc");
+      return path.join(home, ".bash_profile");
     default:
+      // Unknown shell — try .bashrc as safest default
       return path.join(home, ".bashrc");
   }
 }
@@ -207,12 +245,15 @@ export async function fetchJSON(url, headers = {}) {
 
 /**
  * Fetch providers from Portkey API.
+ * @param {string} portkeyKey - Portkey API key
+ * @param {string} [gateway] - Custom gateway URL (defaults to PORTKEY_GATEWAY)
  * Returns { data: [...], error: null } on success,
  * or { data: null, error: "reason" } on failure.
  */
-export async function fetchProviders(portkeyKey) {
+export async function fetchProviders(portkeyKey, gateway) {
+  const baseUrl = (gateway || PORTKEY_GATEWAY).replace(/\/+$/, "");
   try {
-    const data = await fetchJSON(PORTKEY_PROVIDERS_API, {
+    const data = await fetchJSON(`${baseUrl}/v1/providers`, {
       "x-portkey-api-key": portkeyKey,
     });
     const providers = (data.data || [])
@@ -236,12 +277,15 @@ export async function fetchProviders(portkeyKey) {
 
 /**
  * Fetch configs from Portkey API.
+ * @param {string} portkeyKey - Portkey API key
+ * @param {string} [gateway] - Custom gateway URL (defaults to PORTKEY_GATEWAY)
  * Returns { data: [...], error: null } on success,
  * or { data: null, error: "reason" } on failure.
  */
-export async function fetchConfigs(portkeyKey) {
+export async function fetchConfigs(portkeyKey, gateway) {
+  const baseUrl = (gateway || PORTKEY_GATEWAY).replace(/\/+$/, "");
   try {
-    const data = await fetchJSON(PORTKEY_CONFIGS_API, {
+    const data = await fetchJSON(`${baseUrl}/v1/configs`, {
       "x-portkey-api-key": portkeyKey,
     });
     const configs = (data.data || [])

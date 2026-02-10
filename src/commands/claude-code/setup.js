@@ -196,7 +196,7 @@ export async function doSetup(args) {
     } else {
       const s = p.spinner();
       s.start("Fetching providers from your Portkey account...");
-      const { data: providers, error: provErr } = await fetchProviders(portkeyKey);
+      const { data: providers, error: provErr } = await fetchProviders(portkeyKey, gateway);
       if (provErr) {
         s.stop(`Could not fetch providers: ${provErr}`);
       } else {
@@ -244,7 +244,7 @@ export async function doSetup(args) {
     if (!configId) {
       const s = p.spinner();
       s.start("Fetching configs from your Portkey account...");
-      const { data: configs, error: cfgErr } = await fetchConfigs(portkeyKey);
+      const { data: configs, error: cfgErr } = await fetchConfigs(portkeyKey, gateway);
       if (cfgErr) {
         s.stop(`Could not fetch configs: ${cfgErr}`);
       } else {
@@ -521,23 +521,52 @@ export async function doSetup(args) {
   if (!args.dryRun && ready) {
 
     if (location === "env") {
-      const lines = [
-        `# ── Portkey + Claude Code (v${VERSION}) ──`,
-        `export PORTKEY_API_KEY="${portkeyKey}"`,
-        `export ANTHROPIC_BASE_URL="${gateway}"`,
-        `export ANTHROPIC_AUTH_TOKEN="${portkeyKey}"`,
-        `export ANTHROPIC_CUSTOM_HEADERS="${resolvedHeaders}"`,
-      ];
-      if (model) lines.push(`export ANTHROPIC_MODEL="${model}"`);
+      const envVars = {
+        PORTKEY_API_KEY: portkeyKey,
+        ANTHROPIC_BASE_URL: gateway,
+        ANTHROPIC_AUTH_TOKEN: portkeyKey,
+        ANTHROPIC_CUSTOM_HEADERS: resolvedHeaders,
+      };
+      if (model) envVars.ANTHROPIC_MODEL = model;
       if (setModelMappings) {
-        lines.push(`export ANTHROPIC_DEFAULT_OPUS_MODEL="${opusModel}"`);
-        lines.push(`export ANTHROPIC_DEFAULT_SONNET_MODEL="${sonnetModel}"`);
-        lines.push(`export ANTHROPIC_DEFAULT_HAIKU_MODEL="${haikuModel}"`);
+        envVars.ANTHROPIC_DEFAULT_OPUS_MODEL = opusModel;
+        envVars.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnetModel;
+        envVars.ANTHROPIC_DEFAULT_HAIKU_MODEL = haikuModel;
+      }
+
+      const isFish = targetFile.endsWith("config.fish");
+      const isPwsh = targetFile.endsWith(".ps1");
+      const isNu = targetFile.endsWith(".nu");
+
+      const lines = [`# ── Portkey + Claude Code (v${VERSION}) ──`];
+      for (const [k, v] of Object.entries(envVars)) {
+        if (isFish) {
+          lines.push(`set -gx ${k} "${v}"`);
+        } else if (isPwsh) {
+          lines.push(`$env:${k} = "${v}"`);
+        } else if (isNu) {
+          lines.push(`$env.${k} = "${v}"`);
+        } else {
+          lines.push(`export ${k}="${v}"`);
+        }
       }
       lines.push("# ── End Portkey + Claude Code ──");
+
       writeShellRc(targetFile, lines.join("\n"));
       ok(`Written to ${targetFile}`);
-      dim(`Run: source ${targetFile}`);
+
+      let reloadHint;
+      if (isFish) {
+        reloadHint = `source ${targetFile}`;
+      } else if (isPwsh) {
+        reloadHint = `. ${targetFile}`;
+      } else {
+        reloadHint = `source ${targetFile}`;
+      }
+      p.note(
+        `Run this in your terminal, or open a new terminal:\n\n  ${reloadHint}`,
+        "Next step"
+      );
     } else {
       const envPairs = {
         ANTHROPIC_BASE_URL: gateway,
@@ -552,15 +581,11 @@ export async function doSetup(args) {
       settingsSetEnv(targetFile, envPairs);
       if (model) settingsSetKey(targetFile, "model", model);
       ok(`Updated ${targetFile}`);
+      dim("Open a new terminal, then run: claude");
     }
-
-    process.env.PORTKEY_API_KEY = portkeyKey;
-    process.env.ANTHROPIC_BASE_URL = gateway;
-    process.env.ANTHROPIC_AUTH_TOKEN = portkeyKey;
-    process.env.ANTHROPIC_CUSTOM_HEADERS = resolvedHeaders;
   }
 
   p.outro(
-    `${c.dim}Dashboard: ${PORTKEY_DASHBOARD}/logs  ·  Run: claude${c.reset}`
+    `${c.dim}Dashboard: ${PORTKEY_DASHBOARD}/logs${c.reset}`
   );
 }
