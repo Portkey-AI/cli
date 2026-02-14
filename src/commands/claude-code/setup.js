@@ -13,6 +13,7 @@ import {
   mask,
   fetchProviders,
   fetchConfigs,
+  fetchModels,
   findProjectRoot,
   detectShellRc,
   getSettingsPath,
@@ -235,6 +236,9 @@ export async function doSetup(args) {
     }
     providerSlug = normalizeProvider(providerSlug).slice(1);
     extraHeaders = `x-portkey-provider:@${providerSlug}`;
+
+    // Start fetching models in the background while user continues
+    var modelsPromise = fetchModels(portkeyKey, providerSlug, gateway);
   } else if (mode === "config") {
     configId = args.config || "";
     if (!configId && args.yes && existing.found && existing.configId) {
@@ -459,12 +463,46 @@ export async function doSetup(args) {
         ready = true;
       } else if (action === "advanced") {
         // ── Advanced: model ─────────────────────────────────────────
-        model = await p.text({
-          message: "Default model",
-          placeholder: "opus | sonnet | haiku | opusplan (Enter to skip)",
-          defaultValue: model || (existing.found ? existing.model || "" : ""),
-        });
-        if (p.isCancel(model)) return p.outro("Setup cancelled.");
+        // Resolve models from background fetch (if provider mode)
+        let availableModels = [];
+        if (typeof modelsPromise !== "undefined") {
+          const { data: fetchedModels, error: modelsErr } =
+            await modelsPromise;
+          if (fetchedModels && fetchedModels.length > 0) {
+            availableModels = fetchedModels;
+          }
+          // Reset so we don't await again on loop
+          modelsPromise = Promise.resolve({ data: availableModels, error: null });
+        }
+
+        if (availableModels.length > 0) {
+          // Build select options: aliases first, then available models
+          const modelOptions = [
+            { value: "", label: "Skip", hint: "no default model" },
+            { value: "opus", label: "opus", hint: "latest Opus" },
+            { value: "sonnet", label: "sonnet", hint: "latest Sonnet" },
+            { value: "haiku", label: "haiku", hint: "latest Haiku" },
+            { value: "opusplan", label: "opusplan", hint: "Opus plans, Sonnet executes" },
+            ...availableModels.map((m) => ({
+              value: m.id,
+              label: m.id,
+              hint: m.canonicalSlug !== m.id ? m.canonicalSlug : undefined,
+            })),
+          ];
+          model = await p.select({
+            message: "Default model",
+            initialValue: model || (existing.found ? existing.model || "" : ""),
+            options: modelOptions,
+          });
+          if (p.isCancel(model)) return p.outro("Setup cancelled.");
+        } else {
+          model = await p.text({
+            message: "Default model",
+            placeholder: "opus | sonnet | haiku | opusplan (Enter to skip)",
+            defaultValue: model || (existing.found ? existing.model || "" : ""),
+          });
+          if (p.isCancel(model)) return p.outro("Setup cancelled.");
+        }
 
         // ── Advanced: model mappings ────────────────────────────────
         const wantMappings = await p.confirm({
@@ -476,30 +514,61 @@ export async function doSetup(args) {
         if (p.isCancel(wantMappings)) return p.outro("Setup cancelled.");
         if (wantMappings) {
           setModelMappings = true;
-          const mappings = await p.group({
-            opus: () =>
-              p.text({
-                message: "Opus model name",
-                placeholder: "claude-opus-4-20250514",
-                defaultValue: opusModel || "claude-opus-4-20250514",
-              }),
-            sonnet: () =>
-              p.text({
-                message: "Sonnet model name",
-                placeholder: "claude-sonnet-4-20250514",
-                defaultValue: sonnetModel || "claude-sonnet-4-20250514",
-              }),
-            haiku: () =>
-              p.text({
-                message: "Haiku model name",
-                placeholder: "claude-haiku-4-20250514",
-                defaultValue: haikuModel || "claude-haiku-4-20250514",
-              }),
-          });
-          if (p.isCancel(mappings)) return p.outro("Setup cancelled.");
-          opusModel = mappings.opus;
-          sonnetModel = mappings.sonnet;
-          haikuModel = mappings.haiku;
+
+          // If we have models, let user pick from list; otherwise text input
+          if (availableModels.length > 0) {
+            const modelSelectOptions = availableModels.map((m) => ({
+              value: m.id,
+              label: m.id,
+              hint: m.canonicalSlug !== m.id ? m.canonicalSlug : undefined,
+            }));
+
+            opusModel = await p.select({
+              message: "Opus model name",
+              initialValue: opusModel || undefined,
+              options: modelSelectOptions,
+            });
+            if (p.isCancel(opusModel)) return p.outro("Setup cancelled.");
+
+            sonnetModel = await p.select({
+              message: "Sonnet model name",
+              initialValue: sonnetModel || undefined,
+              options: modelSelectOptions,
+            });
+            if (p.isCancel(sonnetModel)) return p.outro("Setup cancelled.");
+
+            haikuModel = await p.select({
+              message: "Haiku model name",
+              initialValue: haikuModel || undefined,
+              options: modelSelectOptions,
+            });
+            if (p.isCancel(haikuModel)) return p.outro("Setup cancelled.");
+          } else {
+            const mappings = await p.group({
+              opus: () =>
+                p.text({
+                  message: "Opus model name",
+                  placeholder: "claude-opus-4-20250514",
+                  defaultValue: opusModel || "claude-opus-4-20250514",
+                }),
+              sonnet: () =>
+                p.text({
+                  message: "Sonnet model name",
+                  placeholder: "claude-sonnet-4-20250514",
+                  defaultValue: sonnetModel || "claude-sonnet-4-20250514",
+                }),
+              haiku: () =>
+                p.text({
+                  message: "Haiku model name",
+                  placeholder: "claude-haiku-4-20250514",
+                  defaultValue: haikuModel || "claude-haiku-4-20250514",
+                }),
+            });
+            if (p.isCancel(mappings)) return p.outro("Setup cancelled.");
+            opusModel = mappings.opus;
+            sonnetModel = mappings.sonnet;
+            haikuModel = mappings.haiku;
+          }
         }
 
         if (setModelMappings) {

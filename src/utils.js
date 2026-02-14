@@ -302,6 +302,31 @@ export async function fetchConfigs(portkeyKey, gateway) {
   }
 }
 
+/**
+ * Fetch models from Portkey API for a specific provider.
+ * @param {string} portkeyKey - Portkey API key
+ * @param {string} providerSlug - Provider slug (e.g. "ant", "bedrock")
+ * @param {string} [gateway] - Custom gateway URL (defaults to PORTKEY_GATEWAY)
+ * Returns { data: [...], error: null } on success,
+ * or { data: null, error: "reason" } on failure.
+ */
+export async function fetchModels(portkeyKey, providerSlug, gateway) {
+  const baseUrl = (gateway || PORTKEY_GATEWAY).replace(/\/+$/, "");
+  try {
+    const data = await fetchJSON(
+      `${baseUrl}/v1/models?provider=${encodeURIComponent(providerSlug)}&limit=100`,
+      { "x-portkey-api-key": portkeyKey }
+    );
+    const models = (data.data || []).map((m) => ({
+      id: m.slug || m.id,
+      canonicalSlug: m.canonical_slug || m.slug || m.id,
+    }));
+    return { data: models, error: null };
+  } catch (e) {
+    return { data: null, error: e.message };
+  }
+}
+
 // ── Shell RC helpers ─────────────────────────────────────────────────────────
 
 export function writeShellRc(filePath, block) {
