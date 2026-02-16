@@ -313,31 +313,51 @@ export async function fetchConfigs(portkeyKey, gateway) {
 export async function fetchModels(portkeyKey, providerSlug, gateway) {
   const baseUrl = (gateway || PORTKEY_GATEWAY).replace(/\/+$/, "");
   try {
-    // Fetch all models, then filter client-side by provider slug
-    // (the API's provider filter uses ai_service not slug)
-    const data = await fetchJSON(
-      `${baseUrl}/v1/models?limit=500`,
-      { "x-portkey-api-key": portkeyKey }
-    );
-    const prefix = `@${providerSlug}/`;
+    // Use x-portkey-provider header to filter server-side
+    const data = await fetchJSON(`${baseUrl}/v1/models`, {
+      "x-portkey-api-key": portkeyKey,
+      "x-portkey-provider": `@${providerSlug.replace(/^@+/, "")}`,
+    });
     const models = (data.data || [])
-      // Filter to this provider
-      .filter((m) => m.id && m.id.startsWith(prefix))
       // Only Claude models for Claude Code
-      .filter((m) => {
-        const slug = (m.slug || "").toLowerCase();
-        return slug.includes("claude");
-      })
-      .map((m) => ({
-        id: m.slug || m.id.replace(prefix, ""),
-        canonicalSlug: m.canonical_slug || m.slug || m.id,
-      }))
-      // Sort: newer versions first (descending alpha puts higher versions on top)
-      .sort((a, b) => b.id.localeCompare(a.id));
+      .filter((m) => m.id && m.id.toLowerCase().includes("claude"))
+      .map((m) => ({ id: m.id }))
+      .sort(sortModels);
     return { data: models, error: null };
   } catch (e) {
     return { data: null, error: e.message };
   }
+}
+
+/**
+ * Sort models: latest/aliases first, then by tier (opus > sonnet > haiku), then by date desc
+ */
+function sortModels(a, b) {
+  const idA = a.id.toLowerCase();
+  const idB = b.id.toLowerCase();
+
+  // 1. "latest" keyword comes first
+  const latestA = idA.includes("latest");
+  const latestB = idB.includes("latest");
+  if (latestA && !latestB) return -1;
+  if (!latestA && latestB) return 1;
+
+  // 2. Shorter names (aliases) come before dated versions
+  // e.g., "claude-opus-4" before "claude-opus-4-20250514"
+  const hasDateA = /\d{8}$/.test(idA);
+  const hasDateB = /\d{8}$/.test(idB);
+  if (!hasDateA && hasDateB) return -1;
+  if (hasDateA && !hasDateB) return 1;
+
+  // 3. Sort by tier: opus > sonnet > haiku
+  const tierOrder = { opus: 0, sonnet: 1, haiku: 2 };
+  const tierA = Object.keys(tierOrder).find((t) => idA.includes(t)) || "zzz";
+  const tierB = Object.keys(tierOrder).find((t) => idB.includes(t)) || "zzz";
+  const tierDiff = (tierOrder[tierA] ?? 99) - (tierOrder[tierB] ?? 99);
+  if (tierDiff !== 0) return tierDiff;
+
+  // 4. Within same tier, sort by version/date descending
+  return idB.localeCompare(idA);
 }
 
 // ── Shell RC helpers ─────────────────────────────────────────────────────────

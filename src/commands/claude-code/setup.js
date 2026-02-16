@@ -237,6 +237,16 @@ export async function doSetup(args) {
     providerSlug = normalizeProvider(providerSlug).slice(1);
     extraHeaders = `x-portkey-provider:@${providerSlug}`;
 
+    // If we don't know the provider type (manual entry), ask the user
+    if (!providerType && !args.yes) {
+      const isBV = await p.confirm({
+        message: "Is this a Bedrock or Vertex AI provider?",
+        initialValue: false,
+      });
+      if (p.isCancel(isBV)) return p.outro("Setup cancelled.");
+      if (isBV) providerType = "bedrock"; // Treat as Bedrock for model mapping purposes
+    }
+
     // Start fetching models in the background while user continues
     var modelsPromise = fetchModels(portkeyKey, providerSlug, gateway);
   } else if (mode === "config") {
@@ -429,33 +439,65 @@ export async function doSetup(args) {
     dim("[dry-run] Would write to " + targetFile);
     ready = false; // skip write
   } else if (args.yes) {
+    // For Bedrock/Vertex in --yes mode, auto-apply model mappings if not set
+    if (isBedrock && !setModelMappings) {
+      setModelMappings = true;
+      // Resolve models from background fetch to get actual model names
+      if (typeof modelsPromise !== "undefined") {
+        const { data: fetchedModels } = await modelsPromise;
+        if (fetchedModels && fetchedModels.length > 0) {
+          // Auto-select first model of each tier
+          opusModel = fetchedModels.find((m) => m.id.toLowerCase().includes("opus"))?.id || opusModel;
+          sonnetModel = fetchedModels.find((m) => m.id.toLowerCase().includes("sonnet"))?.id || sonnetModel;
+          haikuModel = fetchedModels.find((m) => m.id.toLowerCase().includes("haiku"))?.id || haikuModel;
+        }
+      }
+      opusModel = opusModel || "claude-opus-4-20250514";
+      sonnetModel = sonnetModel || "claude-sonnet-4-20250514";
+      haikuModel = haikuModel || "claude-haiku-4-20250514";
+      ok(`Auto-selected model mappings for ${providerType}`);
+    }
     ready = true;
   } else {
+    // For Bedrock/Vertex, force model selection before allowing write
+    let forcedAdvanced = false;
+    if (isBedrock && !setModelMappings && !model) {
+      warn("Bedrock/Vertex requires model configuration to work with Claude Code.");
+      forcedAdvanced = true;
+    }
+
     // Loop: user can go into advanced, come back, and write
     while (!ready) {
       const hasAdvancedContent = model || setModelMappings;
-      const action = await p.select({
-        message: "Next step",
-        options: [
-          {
-            value: "write",
-            label: "Write config",
-            hint: "save and finish",
-          },
-          {
-            value: "advanced",
-            label: "Advanced settings",
-            hint: [
-              "model",
-              "model mappings",
-              isBedrock ? "(recommended for Bedrock/Vertex)" : "",
-            ]
-              .filter(Boolean)
-              .join(", "),
-          },
-          { value: "cancel", label: "Cancel" },
-        ],
-      });
+      
+      // For Bedrock/Vertex without model config, don't show "Write config" option
+      const canWrite = !isBedrock || setModelMappings || model;
+      
+      const options = [];
+      if (canWrite) {
+        options.push({
+          value: "write",
+          label: "Write config",
+          hint: "save and finish",
+        });
+      }
+      options.push(
+        {
+          value: "advanced",
+          label: canWrite ? "Advanced settings" : "Configure model (required)",
+          hint: canWrite
+            ? ["model", "model mappings"].join(", ")
+            : "Bedrock/Vertex needs model names",
+        },
+        { value: "cancel", label: "Cancel" }
+      );
+
+      const action = forcedAdvanced
+        ? "advanced"
+        : await p.select({ message: "Next step", options });
+      
+      forcedAdvanced = false; // Only auto-advance once
+      
       if (p.isCancel(action) || action === "cancel")
         return p.outro("Setup cancelled.");
 
@@ -466,10 +508,15 @@ export async function doSetup(args) {
         // Resolve models from background fetch (if provider mode)
         let availableModels = [];
         if (typeof modelsPromise !== "undefined") {
+          const s = p.spinner();
+          s.start("Loading models...");
           const { data: fetchedModels, error: modelsErr } =
             await modelsPromise;
           if (fetchedModels && fetchedModels.length > 0) {
             availableModels = fetchedModels;
+            s.stop(`Found ${availableModels.length} Claude models`);
+          } else {
+            s.stop(modelsErr ? `Could not load models: ${modelsErr}` : "No models found");
           }
           // Reset so we don't await again on loop
           modelsPromise = Promise.resolve({ data: availableModels, error: null });
@@ -505,77 +552,77 @@ export async function doSetup(args) {
         }
 
         // ── Advanced: model mappings ────────────────────────────────
-        const wantMappings = await p.confirm({
-          message: "Set model name mappings?",
-          initialValue: isBedrock,
-          active: "Yes (needed for Bedrock/Vertex)",
-          inactive: "No",
-        });
-        if (p.isCancel(wantMappings)) return p.outro("Setup cancelled.");
-        if (wantMappings) {
-          setModelMappings = true;
+        setModelMappings = true;
 
-          // If we have models, let user pick from list; otherwise text input
-          if (availableModels.length > 0) {
-            const modelSelectOptions = availableModels.map((m) => ({
-              value: m.id,
-              label: m.id,
-              hint: m.canonicalSlug !== m.id ? m.canonicalSlug : undefined,
-            }));
+        // Auto-detect best defaults from available models
+        const findModel = (tier) =>
+          availableModels.find((m) => m.id.toLowerCase().includes(tier))?.id || "";
+        const defaultOpus = opusModel || findModel("opus") || "claude-opus-4-20250514";
+        const defaultSonnet = sonnetModel || findModel("sonnet") || "claude-sonnet-4-20250514";
+        const defaultHaiku = haikuModel || findModel("haiku") || "claude-haiku-4-20250514";
 
-            opusModel = await p.select({
-              message: "Opus model name",
-              initialValue: opusModel || undefined,
-              options: modelSelectOptions,
-            });
-            if (p.isCancel(opusModel)) return p.outro("Setup cancelled.");
+        // If we have models, let user pick from list; otherwise text input
+        if (availableModels.length > 0) {
+          // Sort models with the relevant tier on top
+          const sortedForTier = (tier) =>
+            [...availableModels].sort((a, b) => {
+              const aMatch = a.id.toLowerCase().includes(tier);
+              const bMatch = b.id.toLowerCase().includes(tier);
+              if (aMatch && !bMatch) return -1;
+              if (!aMatch && bMatch) return 1;
+              return 0;
+            }).map((m) => ({ value: m.id, label: m.id }));
 
-            sonnetModel = await p.select({
-              message: "Sonnet model name",
-              initialValue: sonnetModel || undefined,
-              options: modelSelectOptions,
-            });
-            if (p.isCancel(sonnetModel)) return p.outro("Setup cancelled.");
+          opusModel = await p.select({
+            message: "Opus model name",
+            initialValue: defaultOpus,
+            options: sortedForTier("opus"),
+          });
+          if (p.isCancel(opusModel)) return p.outro("Setup cancelled.");
 
-            haikuModel = await p.select({
-              message: "Haiku model name",
-              initialValue: haikuModel || undefined,
-              options: modelSelectOptions,
-            });
-            if (p.isCancel(haikuModel)) return p.outro("Setup cancelled.");
-          } else {
-            const mappings = await p.group({
-              opus: () =>
-                p.text({
-                  message: "Opus model name",
-                  placeholder: "claude-opus-4-20250514",
-                  defaultValue: opusModel || "claude-opus-4-20250514",
-                }),
-              sonnet: () =>
-                p.text({
-                  message: "Sonnet model name",
-                  placeholder: "claude-sonnet-4-20250514",
-                  defaultValue: sonnetModel || "claude-sonnet-4-20250514",
-                }),
-              haiku: () =>
-                p.text({
-                  message: "Haiku model name",
-                  placeholder: "claude-haiku-4-20250514",
-                  defaultValue: haikuModel || "claude-haiku-4-20250514",
-                }),
-            });
-            if (p.isCancel(mappings)) return p.outro("Setup cancelled.");
-            opusModel = mappings.opus;
-            sonnetModel = mappings.sonnet;
-            haikuModel = mappings.haiku;
-          }
+          sonnetModel = await p.select({
+            message: "Sonnet model name",
+            initialValue: defaultSonnet,
+            options: sortedForTier("sonnet"),
+          });
+          if (p.isCancel(sonnetModel)) return p.outro("Setup cancelled.");
+
+          haikuModel = await p.select({
+            message: "Haiku model name",
+            initialValue: defaultHaiku,
+            options: sortedForTier("haiku"),
+          });
+          if (p.isCancel(haikuModel)) return p.outro("Setup cancelled.");
+        } else {
+          const mappings = await p.group({
+            opus: () =>
+              p.text({
+                message: "Opus model name",
+                placeholder: "claude-opus-4-20250514",
+                defaultValue: defaultOpus,
+              }),
+            sonnet: () =>
+              p.text({
+                message: "Sonnet model name",
+                placeholder: "claude-sonnet-4-20250514",
+                defaultValue: defaultSonnet,
+              }),
+            haiku: () =>
+              p.text({
+                message: "Haiku model name",
+                placeholder: "claude-haiku-4-20250514",
+                defaultValue: defaultHaiku,
+              }),
+          });
+          if (p.isCancel(mappings)) return p.outro("Setup cancelled.");
+          opusModel = mappings.opus;
+          sonnetModel = mappings.sonnet;
+          haikuModel = mappings.haiku;
         }
 
-        if (setModelMappings) {
-          opusModel = opusModel || "claude-opus-4-20250514";
-          sonnetModel = sonnetModel || "claude-sonnet-4-20250514";
-          haikuModel = haikuModel || "claude-haiku-4-20250514";
-        }
+        opusModel = opusModel || "claude-opus-4-20250514";
+        sonnetModel = sonnetModel || "claude-sonnet-4-20250514";
+        haikuModel = haikuModel || "claude-haiku-4-20250514";
 
         // Show updated summary and loop back
         p.note(buildSummary(), "Updated configuration");
