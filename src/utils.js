@@ -313,14 +313,27 @@ export async function fetchConfigs(portkeyKey, gateway) {
 export async function fetchModels(portkeyKey, providerSlug, gateway) {
   const baseUrl = (gateway || PORTKEY_GATEWAY).replace(/\/+$/, "");
   try {
+    // Fetch all models, then filter client-side by provider slug
+    // (the API's provider filter uses ai_service not slug)
     const data = await fetchJSON(
-      `${baseUrl}/v1/models?provider=${encodeURIComponent(providerSlug)}&limit=100`,
+      `${baseUrl}/v1/models?limit=500`,
       { "x-portkey-api-key": portkeyKey }
     );
-    const models = (data.data || []).map((m) => ({
-      id: m.slug || m.id,
-      canonicalSlug: m.canonical_slug || m.slug || m.id,
-    }));
+    const prefix = `@${providerSlug}/`;
+    const models = (data.data || [])
+      // Filter to this provider
+      .filter((m) => m.id && m.id.startsWith(prefix))
+      // Only Claude models for Claude Code
+      .filter((m) => {
+        const slug = (m.slug || "").toLowerCase();
+        return slug.includes("claude");
+      })
+      .map((m) => ({
+        id: m.slug || m.id.replace(prefix, ""),
+        canonicalSlug: m.canonical_slug || m.slug || m.id,
+      }))
+      // Sort: newer versions first (descending alpha puts higher versions on top)
+      .sort((a, b) => b.id.localeCompare(a.id));
     return { data: models, error: null };
   } catch (e) {
     return { data: null, error: e.message };
