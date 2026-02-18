@@ -312,16 +312,19 @@ export async function fetchConfigs(portkeyKey, gateway) {
  */
 export async function fetchModels(portkeyKey, providerSlug, gateway) {
   const baseUrl = (gateway || PORTKEY_GATEWAY).replace(/\/+$/, "");
+  const slug = providerSlug.replace(/^@+/, "");
+  const prefix = `@${slug}/`;
+
   try {
-    // Use x-portkey-provider header to filter server-side
+    // Fetch all models, filter locally by provider slug
+    // (API's ?provider param doesn't work with slugs, only ai_service names)
     const data = await fetchJSON(`${baseUrl}/v1/models`, {
       "x-portkey-api-key": portkeyKey,
-      "x-portkey-provider": `@${providerSlug.replace(/^@+/, "")}`,
     });
     const models = (data.data || [])
-      // Only Claude models for Claude Code
-      .filter((m) => m.id && m.id.toLowerCase().includes("claude"))
-      .map((m) => ({ id: m.id }))
+      .filter((m) => m.id && m.id.startsWith(prefix))
+      .filter((m) => m.id.toLowerCase().includes("claude"))
+      .map((m) => ({ id: m.slug || m.id.replace(prefix, "") }))
       .sort(sortModels);
     return { data: models, error: null };
   } catch (e) {
