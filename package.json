@@ -1,8 +1,11 @@
 {
-  "name": "@portkey-ai/cli",
-  "version": "2.0.0",
+  "name": "portkey",
+  "version": "1.0.0",
   "description": "The Portkey CLI — one command to set up your AI coding agent with gateway routing, MCP tools, and team skills.",
   "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
   "bin": {
     "portkey": "src/index.js"
   },
@@ -13,17 +16,25 @@
   ],
   "scripts": {
     "start": "node src/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "setup": "node src/index.js setup",
     "mcp": "node src/index.js mcp",
     "skills": "node src/index.js skills",
     "discover": "node src/index.js discover",
-    "verify": "node src/index.js verify"
+    "verify": "node src/index.js verify",
+    "prepublishOnly": "npm test"
   },
   "keywords": [
     "portkey",
     "claude-code",
     "anthropic",
     "ai-gateway",
+    "openai",
+    "codex",
+    "cursor",
+    "ai-agent",
+    "gateway",
     "mcp",
     "agent-skills",
     "cli"
@@ -36,13 +47,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/portkey-ai/cli.git"
+    "url": "git+https://github.com/portkey-ai/agent-cli.git"
   },
   "homepage": "https://portkey.ai/docs",
   "bugs": {
-    "url": "https://github.com/portkey-ai/cli/issues"
+    "url": "https://github.com/portkey-ai/agent-cli/issues"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }

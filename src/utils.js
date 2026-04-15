@@ -2,10 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { execSync } from "node:child_process";
+import { createRequire } from "node:module";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-export const VERSION = "2.0.0";
+const require = createRequire(import.meta.url);
+const pkg = require("../package.json");
+export const VERSION = pkg.version;
 export const PORTKEY_GATEWAY = "https://api.portkey.ai";
 export const PORTKEY_DASHBOARD = "https://app.portkey.ai";
 

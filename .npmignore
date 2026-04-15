@@ -1,0 +1,9 @@
+tests/
+coverage/
+.github/
+.env*
+!.env.example
+*.tgz
+TESTING.md
+.DS_Store
+.cursor/

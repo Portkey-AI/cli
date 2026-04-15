@@ -12,7 +12,7 @@ import { doSkillsSync, doSkillsList }        from "./commands/claude-code/skills
 
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const args = {
     command:     "",
     subcommand:  "",

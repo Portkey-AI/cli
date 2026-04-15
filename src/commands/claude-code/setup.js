@@ -100,7 +100,7 @@ function isModelsCatalogApiUnavailable(errMsg) {
 // ── Main setup ────────────────────────────────────────────────────────────────
 
 export async function doSetup(args) {
-  console.clear();
+  if (process.stdout.isTTY) console.clear();
   p.intro(
     `${c.bold}Portkey CLI${c.reset} ${c.dim}v${VERSION}${c.reset}  ` +
     `${c.dim}One command. Your AI coding agent, fully configured.${c.reset}`
