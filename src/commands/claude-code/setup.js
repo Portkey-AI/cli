@@ -169,11 +169,14 @@ export async function doSetup(args) {
       "Cursor"
     );
 
-    let key = args.portkeyKey || process.env.PORTKEY_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || "";
-    if (!key && !args.yes) {
+    const existingCursor = readExistingConfig();
+    let key = args.portkeyKey || (args.yes ? (existingCursor.portkeyKey || "") : "");
+    if (!args.portkeyKey && !args.yes) {
+      const savedKey = existingCursor.portkeyKey || "";
       key = await p.text({
         message: "Portkey API key (for skills sync)",
         placeholder: `paste from ${PORTKEY_DASHBOARD}/api-keys`,
+        initialValue: savedKey,
         validate: (v) => (!v ? "API key is required" : undefined),
       });
       if (p.isCancel(key)) return p.outro("Setup cancelled.");
@@ -213,8 +216,6 @@ export async function doSetup(args) {
     if (action === "keep") {
       const resolvedKey =
         args.portkeyKey ||
-        process.env.PORTKEY_API_KEY ||
-        process.env.ANTHROPIC_AUTH_TOKEN ||
         existing.portkeyKey ||
         "";
       const resolvedGateway = existing.gateway || PORTKEY_GATEWAY;
@@ -244,45 +245,23 @@ export async function doSetup(args) {
   }
 
   // ── Step 1: Portkey API key + validation ──────────────────────────────────
-  let portkeyKey =
-    args.portkeyKey ||
-    process.env.PORTKEY_API_KEY ||
-    (existing.found ? existing.portkeyKey : "") ||
-    "";
-
   let gateway = args.gateway ||
     (existing.found && existing.gateway !== PORTKEY_GATEWAY ? existing.gateway : PORTKEY_GATEWAY);
 
   let providers = null;
   let configs   = null;
 
-  if (portkeyKey && !args.portkeyKey) {
-    if (!args.yes) {
-      const s = p.spinner();
-      s.start("Validating existing API key...");
-      const { data, error } = await fetchProviders(portkeyKey, gateway);
-      if (error) {
-        s.stop(
-          isLikelyPortkeyApiKeyPermissionError(error)
-            ? "API key rejected (check Permissions in Portkey dashboard)"
-            : `Invalid API key: ${error}`
-        );
-        if (isLikelyPortkeyApiKeyPermissionError(error)) {
-          p.note(portkeyApiKeyPermissionNoteBody("providers"), "API key permissions");
-        }
-        portkeyKey = "";
-      } else {
-        providers = data;
-        s.stop(`Connected (${providers.length} provider${providers.length !== 1 ? "s" : ""} in Model Catalog)`);
-        await sleep(500);
-      }
-    }
-  }
+  // --yes / --portkey-key bypass the interactive prompt
+  let portkeyKey = args.portkeyKey ||
+    (args.yes ? ((existing.found ? existing.portkeyKey : "") || "") : "") ||
+    "";
 
-  if (!portkeyKey) {
+  if (!args.portkeyKey && !args.yes) {
+    const savedKey = (existing.found ? existing.portkeyKey : "") || "";
     portkeyKey = await p.text({
       message: "Portkey API key",
       placeholder: `paste from ${PORTKEY_DASHBOARD}/api-keys`,
+      initialValue: savedKey,
       validate: (v) => (!v ? "API key is required" : undefined),
     });
     if (p.isCancel(portkeyKey)) return p.outro("Setup cancelled.");
@@ -480,11 +459,12 @@ export async function doSetup(args) {
     } else if (catalogUnavailable) {
       p.note(
         [
-          `Portkey’s ${c.bold}model-list API${c.reset} isn’t available for this workspace (often disabled on the current plan).`,
+          `You need Portkey’s ${c.bold}${c.reset}model-list API${c.reset} to get the list of models.`,
+          `You may not have the permission to use this API. Or`,
+          `This feature may not be available for your workspace (often disabled on the current plan).`,
+          `Contact ${c.cyan}${c.reset}support@portkey.ai${c.reset} for help.`,
           ``,
-          `${c.bold}Enterprise:${c.reset} to enable automatic model listing, contact ${c.cyan}support@portkey.ai${c.reset}.`,
-          ``,
-          `You can still continue: type the ${c.bold}model ID${c.reset} your virtual key uses — the same name as in the Portkey app.`,
+          `You can still continue: type the ${c.bold}${c.reset}model ID${c.reset} (Example: claude-sonnet-4-6) from model catalog in the next step.`,
         ].join("\n"),
         "Model list unavailable"
       );
