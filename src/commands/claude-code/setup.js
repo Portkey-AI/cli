@@ -204,8 +204,8 @@ export async function doSetup(args) {
     const action = await p.select({
       message: `Existing config found: ${summary}`,
       options: [
-        { value: "keep",   label: "Keep current config", hint: "no changes" },
         { value: "update", label: "Update config",        hint: "guided setup" },
+        { value: "keep",   label: "Keep current config", hint: "no changes" },
         { value: "cancel", label: "Cancel" },
       ],
     });
