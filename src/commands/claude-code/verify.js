@@ -118,7 +118,7 @@ export async function doVerifyMcp() {
 
   if (entries.length === 0) {
     err("No remote MCP servers found. Add some with: portkey mcp add");
-    p.outro(`${c.dim}https://code.claude.com/docs/en/mcp${c.reset}`);
+    p.outro(`${c.dim}Create one at https://app.portkey.ai/mcp-servers${c.reset}`);
     return;
   }
 

@@ -193,6 +193,7 @@ export async function doDiscover() {
 
   if (totalMcp === 0) {
     mcpLines.push(`${c.dim}No MCP servers configured. Run: portkey mcp add${c.reset}`);
+    mcpLines.push(`${c.dim}Create one at https://app.portkey.ai/mcp-servers${c.reset}`);
   }
   p.note(mcpLines.join("\n"), "MCP Servers");
 
@@ -222,6 +223,7 @@ export async function doDiscover() {
 
   if (totalSkills === 0) {
     skillsLines.push(`${c.dim}No skills synced. Run: portkey skills sync${c.reset}`);
+    skillsLines.push(`${c.dim}Create one at https://app.portkey.ai/partials${c.reset}`);
   }
   p.note(skillsLines.join("\n"), "Skills");
 

@@ -1081,7 +1081,8 @@ async function runMcpSelection(
   s.stop(`Found ${servers.length} MCP server${servers.length !== 1 ? "s" : ""}`);
 
   if (servers.length === 0) {
-    info(`No MCP servers in workspace. Register one at ${PORTKEY_DASHBOARD}/mcp`);
+    info(`No MCP servers in workspace.`);
+    info(`Create one at https://app.portkey.ai/mcp-servers`);
     return;
   }
 
@@ -1206,7 +1207,8 @@ async function runSkillsSelection(args, portkeyKey, gateway, projectRoot, defaul
   s.stop(`Found ${skills.length} skill${skills.length !== 1 ? "s" : ""}`);
 
   if (skills.length === 0) {
-    info(`No prompt partials in workspace. Create one at ${PORTKEY_DASHBOARD}/prompts`);
+    info(`No skills in workspace.`);
+    info(`Create one at https://app.portkey.ai/partials`);
     return;
   }
 

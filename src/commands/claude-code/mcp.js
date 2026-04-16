@@ -214,7 +214,7 @@ export async function doMcpAdd(args) {
 
   if (servers.length === 0) {
     info(`No MCP servers registered in your workspace.`);
-    info(`Register servers at ${PORTKEY_DASHBOARD}/mcp`);
+    info(`Create one at https://app.portkey.ai/mcp-servers`);
     return;
   }
 

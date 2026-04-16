@@ -96,8 +96,7 @@ export async function doSkillsSync(args) {
 
   if (skills.length === 0) {
     info(`No skills found in workspace.`);
-    info(`Create a skill in Prompt Engineering Studio: ${PORTKEY_DASHBOARD}/prompts`);
-    info(`Skills are Prompt Partials starting with YAML frontmatter (name + description).`);
+    info(`Create one at https://app.portkey.ai/partials`);
     return;
   }
 
@@ -298,6 +297,7 @@ export async function doSkillsList(args) {
     p.note(localLines.join("\n"), "Locally Synced");
   } else {
     info(`Nothing synced yet. Run: ${c.bold}portkey skills sync${c.reset}`);
+    info(`Create one at https://app.portkey.ai/partials`);
   }
 
   console.log();
