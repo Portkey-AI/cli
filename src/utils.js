@@ -2,14 +2,19 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { execSync } from "node:child_process";
+import { createRequire } from "node:module";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-export const VERSION = "1.0.0";
+const require = createRequire(import.meta.url);
+const pkg = require("../package.json");
+export const VERSION = pkg.version;
 export const PORTKEY_GATEWAY = "https://api.portkey.ai";
-export const PORTKEY_PROVIDERS_API = "https://api.portkey.ai/v1/providers";
-export const PORTKEY_CONFIGS_API = "https://api.portkey.ai/v1/configs";
 export const PORTKEY_DASHBOARD = "https://app.portkey.ai";
+
+/** Shown on multiselect prompts — Clack uses arrows, Space toggles, Enter submits */
+export const MULTISELECT_HINT =
+  "↑↓ move highlight · Space = select or deselect · Enter = finish";
 
 // ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -27,13 +32,14 @@ export const c = {
   yellow: fmt("1;33"),
   cyan: fmt("0;36"),
   magenta: fmt("0;35"),
+  blue: fmt("0;34"),
 };
 
-export const ok = (msg) => console.log(`${c.green}✔${c.reset} ${msg}`);
-export const err = (msg) => console.log(`${c.red}✘${c.reset} ${msg}`);
+export const ok   = (msg) => console.log(`${c.green}✔${c.reset} ${msg}`);
+export const err  = (msg) => console.log(`${c.red}✘${c.reset} ${msg}`);
 export const warn = (msg) => console.log(`${c.yellow}⚠${c.reset} ${msg}`);
 export const info = (msg) => console.log(`${c.cyan}→${c.reset} ${msg}`);
-export const dim = (msg) => console.log(`${c.dim}  ${msg}${c.reset}`);
+export const dim  = (msg) => console.log(`${c.dim}  ${msg}${c.reset}`);
 
 export function mask(key) {
   if (!key) return "***";
@@ -55,11 +61,7 @@ export function jsonRead(filePath, keyPath) {
 
 export function settingsSetEnv(filePath, pairs) {
   let data = {};
-  try {
-    data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch {
-    // start fresh
-  }
+  try { data = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch {}
   if (!data.env) data.env = {};
   Object.assign(data.env, pairs);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -68,11 +70,7 @@ export function settingsSetEnv(filePath, pairs) {
 
 export function settingsSetKey(filePath, key, value) {
   let data = {};
-  try {
-    data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch {
-    // start fresh
-  }
+  try { data = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch {}
   data[key] = value;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
@@ -80,16 +78,82 @@ export function settingsSetKey(filePath, key, value) {
 
 export function settingsRemoveKeys(filePath, envKeys) {
   let data;
-  try {
-    data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch {
-    return;
-  }
+  try { data = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch { return; }
   const env = data.env || {};
   for (const k of envKeys) delete env[k];
   if (Object.keys(env).length === 0) delete data.env;
   else data.env = env;
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
+}
+
+// ── MCP settings helpers ─────────────────────────────────────────────────────
+//
+// Claude Code has three MCP scopes, all stored in JSON files:
+//
+//   "local"   (default) – ~/.claude.json → projects["/abs/path"].mcpServers
+//                         private, only active in the current project
+//   "project"           – .mcp.json at project root
+//                         committed to git, shared with the whole team
+//   "user"              – ~/.claude.json → root mcpServers
+//                         private, available across all projects
+//
+// Pass { scope: "local", projectPath: "/abs/path" } for local scope.
+// Omit options (or pass scope: "user") to write to the root mcpServers.
+
+function _mcpTarget(data, scope, projectPath) {
+  if (scope === "local" && projectPath) {
+    if (!data.projects) data.projects = {};
+    if (!data.projects[projectPath]) data.projects[projectPath] = {};
+    return data.projects[projectPath];
+  }
+  return data;
+}
+
+/**
+ * Add or update MCP servers in a Claude settings JSON file.
+ * servers: { "server-name": { type, url, headers } }
+ * opts:    { scope: "local"|"project"|"user", projectPath: "/abs/path" }
+ *          scope defaults to "user" (root mcpServers).
+ */
+export function settingsSetMcp(filePath, servers, { scope = "user", projectPath = null } = {}) {
+  let data = {};
+  try { data = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch {}
+  const target = _mcpTarget(data, scope, projectPath);
+  if (!target.mcpServers) target.mcpServers = {};
+  Object.assign(target.mcpServers, servers);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
+}
+
+/**
+ * Remove named MCP servers from a Claude settings JSON file.
+ * names: array of server keys to remove.
+ */
+export function settingsRemoveMcp(filePath, names, { scope = "user", projectPath = null } = {}) {
+  let data;
+  try { data = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch { return; }
+  const target = _mcpTarget(data, scope, projectPath);
+  const servers = target.mcpServers || {};
+  for (const n of names) delete servers[n];
+  if (Object.keys(servers).length === 0) delete target.mcpServers;
+  else target.mcpServers = servers;
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
+}
+
+/**
+ * Read all mcpServers from a Claude settings JSON file.
+ * Returns {} if not found or file doesn't exist.
+ */
+export function settingsReadMcp(filePath, { scope = "user", projectPath = null } = {}) {
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (scope === "local" && projectPath) {
+      return data.projects?.[projectPath]?.mcpServers || {};
+    }
+    return data.mcpServers || {};
+  } catch {
+    return {};
+  }
 }
 
 // ── Path detection ───────────────────────────────────────────────────────────
@@ -108,27 +172,13 @@ export function findProjectRoot(startDir = process.cwd()) {
 export function detectShellRc() {
   const home = os.homedir();
 
-  // On Windows, $SHELL is usually not set
   if (process.platform === "win32") {
-    // Check for PowerShell profile
-    const pwshProfile = path.join(
-      home,
-      "Documents",
-      "PowerShell",
-      "Microsoft.PowerShell_profile.ps1"
-    );
-    const wpwshProfile = path.join(
-      home,
-      "Documents",
-      "WindowsPowerShell",
-      "Microsoft.PowerShell_profile.ps1"
-    );
+    const pwshProfile = path.join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1");
+    const wpwshProfile = path.join(home, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1");
     if (fs.existsSync(pwshProfile)) return pwshProfile;
     if (fs.existsSync(wpwshProfile)) return wpwshProfile;
-    // Git Bash on Windows
     const bashrc = path.join(home, ".bashrc");
     if (fs.existsSync(bashrc)) return bashrc;
-    // Default to PowerShell Core profile
     return pwshProfile;
   }
 
@@ -143,15 +193,11 @@ export function detectShellRc() {
       return path.join(home, ".config", "nushell", "env.nu");
     case "pwsh":
     case "powershell":
-      // PowerShell on macOS/Linux
       return path.join(home, ".config", "powershell", "Microsoft.PowerShell_profile.ps1");
     case "bash":
-      // Prefer .bashrc, fall back to .bash_profile on macOS
-      if (fs.existsSync(path.join(home, ".bashrc")))
-        return path.join(home, ".bashrc");
+      if (fs.existsSync(path.join(home, ".bashrc"))) return path.join(home, ".bashrc");
       return path.join(home, ".bash_profile");
     default:
-      // Unknown shell — try .bashrc as safest default
       return path.join(home, ".bashrc");
   }
 }
@@ -159,20 +205,13 @@ export function detectShellRc() {
 export function getConfigPath(layer, projectRoot) {
   const home = os.homedir();
   switch (layer) {
-    case "enterprise":
-      return findEnterprisePath();
-    case "global":
-      return path.join(home, ".claude", "settings.json");
+    case "enterprise": return findEnterprisePath();
+    case "global":     return path.join(home, ".claude", "settings.json");
     case "project-shared":
-      return projectRoot
-        ? path.join(projectRoot, ".claude", "settings.json")
-        : null;
+      return projectRoot ? path.join(projectRoot, ".claude", "settings.json") : null;
     case "project-local":
-      return projectRoot
-        ? path.join(projectRoot, ".claude", "settings.local.json")
-        : null;
-    default:
-      return null;
+      return projectRoot ? path.join(projectRoot, ".claude", "settings.local.json") : null;
+    default: return null;
   }
 }
 
@@ -181,198 +220,88 @@ function findEnterprisePath() {
     "/Library/Application Support/ClaudeCode/managed-settings.json",
     "/etc/claude-code/managed-settings.json",
   ];
-  if (process.env.ProgramData) {
-    candidates.push(
-      path.join(
-        process.env.ProgramData,
-        "ClaudeCode",
-        "managed-settings.json"
-      )
-    );
-  }
-  if (process.env.LOCALAPPDATA) {
-    candidates.push(
-      path.join(
-        process.env.LOCALAPPDATA,
-        "ClaudeCode",
-        "managed-settings.json"
-      )
-    );
-  }
+  if (process.env.ProgramData)
+    candidates.push(path.join(process.env.ProgramData, "ClaudeCode", "managed-settings.json"));
+  if (process.env.LOCALAPPDATA)
+    candidates.push(path.join(process.env.LOCALAPPDATA, "ClaudeCode", "managed-settings.json"));
   return candidates.find((p) => fs.existsSync(p)) || null;
 }
 
 export function getSettingsPath(location, projectRoot) {
   const home = os.homedir();
   switch (location) {
-    case "project-local":
-      return path.join(projectRoot, ".claude", "settings.local.json");
-    case "project-shared":
-      return path.join(projectRoot, ".claude", "settings.json");
-    case "global":
-      return path.join(home, ".claude", "settings.json");
-    case "env":
-      return detectShellRc();
-    default:
-      return path.join(home, ".claude", "settings.json");
+    case "project-local":  return path.join(projectRoot, ".claude", "settings.local.json");
+    case "project-shared": return path.join(projectRoot, ".claude", "settings.json");
+    case "global":         return path.join(home, ".claude", "settings.json");
+    case "env":            return detectShellRc();
+    default:               return path.join(home, ".claude", "settings.json");
   }
 }
 
-// ── HTTP helpers ─────────────────────────────────────────────────────────────
+/**
+ * Return the correct file path for MCP server storage based on scope.
+ *
+ * Claude Code MCP scopes (from https://code.claude.com/docs/en/mcp):
+ *   project → .mcp.json at project root (team-shared, committed to git)
+ *   user    → ~/.claude.json  (personal, all projects)
+ *   local   → ~/.claude.json  (personal, this project only — stored under project path)
+ *
+ * For CLI purposes we simplify to two storage locations:
+ *   - Any project scope  → <projectRoot>/.mcp.json
+ *   - Global/user scope  → ~/.claude.json  (top-level mcpServers field)
+ */
+export function getMcpFilePath(location, projectRoot) {
+  if (location === "global" || location === "user" || !projectRoot) {
+    return path.join(os.homedir(), ".claude.json");
+  }
+  // project-local, project-shared, env, project — all write to .mcp.json in project
+  return path.join(projectRoot, ".mcp.json");
+}
 
-export async function fetchJSON(url, headers = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  try {
-    const res = await fetch(url, {
-      headers,
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      let detail = "";
-      try {
-        const body = await res.json();
-        detail = body.message || body.error?.message || "";
-      } catch {}
-      const msg = `HTTP ${res.status}${detail ? ": " + detail : ""}`;
-      throw new Error(msg);
+/** @deprecated Use getMcpFilePath instead */
+export function getMcpSettingsPath(projectRoot) {
+  return getMcpFilePath("project", projectRoot);
+}
+
+// ── Skills path helpers ──────────────────────────────────────────────────────
+
+export const AGENTS = {
+  claude: { label: "Claude Code", dir: ".claude" },
+  cursor: { label: "Cursor",      dir: ".cursor" },
+  codex:  { label: "Codex",       dir: ".codex"  },
+};
+
+export const AGENT_SKILLS_DIRS = {
+  claude: (root, global) => global
+    ? path.join(os.homedir(), ".claude", "skills")
+    : path.join(root || process.cwd(), ".claude", "skills"),
+  cursor: (root, global) => global
+    ? path.join(os.homedir(), ".cursor", "skills")
+    : path.join(root || process.cwd(), ".cursor", "skills"),
+  codex:  (root, global) => global
+    ? path.join(os.homedir(), ".codex", "skills")
+    : path.join(root || process.cwd(), ".codex", "skills"),
+};
+
+/** Detect which of the supported agents are already configured. */
+export function detectInstalledAgents(projectRoot) {
+  const home = os.homedir();
+  const installed = [];
+  for (const [key, agent] of Object.entries(AGENTS)) {
+    const globalDir  = path.join(home, agent.dir);
+    const projectDir = projectRoot ? path.join(projectRoot, agent.dir) : null;
+    if (fs.existsSync(globalDir) || (projectDir && fs.existsSync(projectDir))) {
+      installed.push(key);
     }
-    return await res.json();
-  } finally {
-    clearTimeout(timeout);
   }
-}
-
-/**
- * Fetch providers from Portkey API.
- * @param {string} portkeyKey - Portkey API key
- * @param {string} [gateway] - Custom gateway URL (defaults to PORTKEY_GATEWAY)
- * Returns { data: [...], error: null } on success,
- * or { data: null, error: "reason" } on failure.
- */
-export async function fetchProviders(portkeyKey, gateway) {
-  const baseUrl = (gateway || PORTKEY_GATEWAY).replace(/\/+$/, "");
-  try {
-    const data = await fetchJSON(`${baseUrl}/v1/providers`, {
-      "x-portkey-api-key": portkeyKey,
-    });
-    const providers = (data.data || [])
-      .filter((p) => p.status === "active" && p.slug)
-      .map((p) => ({
-        slug: p.slug,
-        name: p.name || "",
-        provider: p.provider || "",
-        workspace: p.workspace_name || "",
-        note:
-          (p.note || "").replace(/\|/g, "-") ===
-          "Created automatically on integration access grant"
-            ? ""
-            : (p.note || "").replace(/\|/g, "-"),
-      }));
-    return { data: providers, error: null };
-  } catch (e) {
-    return { data: null, error: e.message };
-  }
-}
-
-/**
- * Fetch configs from Portkey API.
- * @param {string} portkeyKey - Portkey API key
- * @param {string} [gateway] - Custom gateway URL (defaults to PORTKEY_GATEWAY)
- * Returns { data: [...], error: null } on success,
- * or { data: null, error: "reason" } on failure.
- */
-export async function fetchConfigs(portkeyKey, gateway) {
-  const baseUrl = (gateway || PORTKEY_GATEWAY).replace(/\/+$/, "");
-  try {
-    const data = await fetchJSON(`${baseUrl}/v1/configs`, {
-      "x-portkey-api-key": portkeyKey,
-    });
-    const configs = (data.data || [])
-      .filter((cfg) => cfg.status === "active" && cfg.slug)
-      .map((cfg) => ({
-        id: cfg.slug || cfg.id,
-        name: cfg.name || "",
-        isDefault: cfg.is_default || false,
-        updatedAt: cfg.last_updated_at || "",
-      }));
-    return { data: configs, error: null };
-  } catch (e) {
-    return { data: null, error: e.message };
-  }
-}
-
-/**
- * Fetch models from Portkey API for a specific provider.
- * @param {string} portkeyKey - Portkey API key
- * @param {string} providerSlug - Provider slug (e.g. "ant", "bedrock")
- * @param {string} [gateway] - Custom gateway URL (defaults to PORTKEY_GATEWAY)
- * Returns { data: [...], error: null } on success,
- * or { data: null, error: "reason" } on failure.
- */
-export async function fetchModels(portkeyKey, providerSlug, gateway) {
-  const baseUrl = (gateway || PORTKEY_GATEWAY).replace(/\/+$/, "");
-  const slug = providerSlug.replace(/^@+/, "");
-  const prefix = `@${slug}/`;
-
-  try {
-    // Fetch all models, filter locally by provider slug
-    // (API's ?provider param doesn't work with slugs, only ai_service names)
-    const data = await fetchJSON(`${baseUrl}/v1/models`, {
-      "x-portkey-api-key": portkeyKey,
-    });
-    const models = (data.data || [])
-      .filter((m) => m.id && m.id.startsWith(prefix))
-      .filter((m) => m.id.toLowerCase().includes("claude"))
-      .map((m) => ({ id: m.slug || m.id.replace(prefix, "") }))
-      .sort(sortModels);
-    return { data: models, error: null };
-  } catch (e) {
-    return { data: null, error: e.message };
-  }
-}
-
-/**
- * Sort models: latest/aliases first, then by tier (opus > sonnet > haiku), then by date desc
- */
-function sortModels(a, b) {
-  const idA = a.id.toLowerCase();
-  const idB = b.id.toLowerCase();
-
-  // 1. "latest" keyword comes first
-  const latestA = idA.includes("latest");
-  const latestB = idB.includes("latest");
-  if (latestA && !latestB) return -1;
-  if (!latestA && latestB) return 1;
-
-  // 2. Shorter names (aliases) come before dated versions
-  // e.g., "claude-opus-4" before "claude-opus-4-20250514"
-  const hasDateA = /\d{8}$/.test(idA);
-  const hasDateB = /\d{8}$/.test(idB);
-  if (!hasDateA && hasDateB) return -1;
-  if (hasDateA && !hasDateB) return 1;
-
-  // 3. Sort by tier: opus > sonnet > haiku
-  const tierOrder = { opus: 0, sonnet: 1, haiku: 2 };
-  const tierA = Object.keys(tierOrder).find((t) => idA.includes(t)) || "zzz";
-  const tierB = Object.keys(tierOrder).find((t) => idB.includes(t)) || "zzz";
-  const tierDiff = (tierOrder[tierA] ?? 99) - (tierOrder[tierB] ?? 99);
-  if (tierDiff !== 0) return tierDiff;
-
-  // 4. Within same tier, sort by version/date descending
-  return idB.localeCompare(idA);
+  return installed;
 }
 
 // ── Shell RC helpers ─────────────────────────────────────────────────────────
 
 export function writeShellRc(filePath, block) {
   let content = "";
-  try {
-    content = fs.readFileSync(filePath, "utf8");
-  } catch {
-    // new file
-  }
-  // Remove existing Portkey block
+  try { content = fs.readFileSync(filePath, "utf8"); } catch {}
   content = content.replace(
     /\n?# ── Portkey \+ Claude Code[\s\S]*?# ── End Portkey \+ Claude Code ──\n?/g,
     ""
@@ -398,36 +327,28 @@ export function removeShellRcBlock(filePath) {
 
 // ── Config discovery ─────────────────────────────────────────────────────────
 
-/**
- * Read existing Portkey config from settings files.
- * Returns the highest-precedence values found, plus which file they came from.
- */
 export function readExistingConfig() {
   const projectRoot = findProjectRoot();
   const checkOrder = [
-    { layer: "project-local", path: getConfigPath("project-local", projectRoot) },
+    { layer: "project-local",  path: getConfigPath("project-local",  projectRoot) },
     { layer: "project-shared", path: getConfigPath("project-shared", projectRoot) },
-    { layer: "global", path: getConfigPath("global", projectRoot) },
+    { layer: "global",         path: getConfigPath("global",         projectRoot) },
   ].filter((c) => c.path && fs.existsSync(c.path));
 
   for (const { layer, path: filePath } of checkOrder) {
     const baseUrl = jsonRead(filePath, "env.ANTHROPIC_BASE_URL");
-    if (!baseUrl) continue; // no Portkey config here
+    if (!baseUrl) continue;
 
     const authToken = jsonRead(filePath, "env.ANTHROPIC_AUTH_TOKEN") || "";
-    const headers = jsonRead(filePath, "env.ANTHROPIC_CUSTOM_HEADERS") || "";
-    const model = jsonRead(filePath, "model") || "";
+    const headers   = jsonRead(filePath, "env.ANTHROPIC_CUSTOM_HEADERS") || "";
+    const model     = jsonRead(filePath, "model") || "";
 
-    // Parse routing from headers
-    let mode = "";
-    let provider = "";
-    let configId = "";
+    let mode = "", provider = "", configId = "";
     if (headers.includes("x-portkey-provider:")) {
       mode = "provider";
       provider = (headers.match(/x-portkey-provider:(\S+)/)?.[1] || "").replace(/^@+/, "");
     } else if (headers.includes("x-portkey-config:")) {
       const cfgVal = headers.match(/x-portkey-config:(\S+)/)?.[1] || "";
-      // Check if it's a base64-encoded OAuth config or a config ID
       if (cfgVal.startsWith("pc-") || cfgVal.length < 30) {
         mode = "config";
         configId = cfgVal;
@@ -436,21 +357,7 @@ export function readExistingConfig() {
       }
     }
 
-    // Determine location from layer
-    let location = layer;
-
-    return {
-      found: true,
-      filePath,
-      location,
-      portkeyKey: authToken,
-      gateway: baseUrl,
-      mode,
-      provider,
-      configId,
-      model,
-      headers,
-    };
+    return { found: true, filePath, location: layer, portkeyKey: authToken, gateway: baseUrl, mode, provider, configId, model, headers };
   }
 
   return { found: false };
@@ -469,4 +376,87 @@ export function isClaudeInstalled() {
 
 export function normalizeProvider(slug) {
   return "@" + slug.replace(/^@+/, "");
+}
+
+export function sortModels(a, b) {
+  const idA = a.id.toLowerCase();
+  const idB = b.id.toLowerCase();
+  const latestA = idA.includes("latest"), latestB = idB.includes("latest");
+  if (latestA && !latestB) return -1;
+  if (!latestA && latestB) return 1;
+  const hasDateA = /\d{8}$/.test(idA), hasDateB = /\d{8}$/.test(idB);
+  if (!hasDateA && hasDateB) return -1;
+  if (hasDateA && !hasDateB) return 1;
+  const tierOrder = { opus: 0, sonnet: 1, haiku: 2 };
+  const tierA = Object.keys(tierOrder).find((t) => idA.includes(t)) || "zzz";
+  const tierB = Object.keys(tierOrder).find((t) => idB.includes(t)) || "zzz";
+  const tierDiff = (tierOrder[tierA] ?? 99) - (tierOrder[tierB] ?? 99);
+  if (tierDiff !== 0) return tierDiff;
+  return idB.localeCompare(idA);
+}
+
+// ── Portkey API key permissions (403 hints) ───────────────────────────────────
+
+/** True when Portkey likely rejected the call because the API key scopes are too narrow */
+export function isLikelyPortkeyApiKeyPermissionError(message) {
+  const m = String(message || "");
+  return (
+    /\b403\b/.test(m) ||
+    /AB03/i.test(m) ||
+    /not have enough permissions/i.test(m) ||
+    (/permission/i.test(m) && /execute/i.test(m))
+  );
+}
+
+/**
+ * Copy for p.note: which Permission toggles to enable in the Portkey dashboard.
+ * @param {"mcp"|"providers"|"configs"|"skills"|"models"} feature — what the user was doing
+ */
+export function portkeyApiKeyPermissionNoteBody(feature) {
+  const intro = [
+    `${c.yellow}HTTP 403 — your API key needs more permissions${c.reset}`,
+    `In ${PORTKEY_DASHBOARD} go to ${c.bold}API Keys${c.reset} → your key → ${c.bold}Permissions${c.reset}. Enable:`,
+  ];
+
+  /** Shown only when fetch MCP integrations fails — MCP section only (no Providers / Completions) */
+  const mcp = [
+    ``,
+    `${c.bold}MCP${c.reset}`,
+    `  ${c.dim}•${c.reset} Enable ${c.bold}INVOKE${c.reset} under MCP in Permissions.`,
+  ];
+
+  const providers = [
+    ``,
+    `${c.bold}Providers${c.reset} (Model Catalog / virtual keys)`,
+    `  ${c.dim}•${c.reset} READ, LIST`,
+  ];
+
+  const completions = [
+    ``,
+    `${c.bold}Completions${c.reset} (gateway chat)`,
+    `  ${c.dim}•${c.reset} WRITE on /chat/completions, /completions, /images, /audio`,
+  ];
+
+  const configs = [
+    ``,
+    `${c.bold}Configs${c.reset}`,
+    `  ${c.dim}•${c.reset} READ, LIST (and other config scopes you use)`,
+  ];
+
+  const prompts = [
+    ``,
+    `${c.bold}Prompts${c.reset} (team skills / partials)`,
+    `  ${c.dim}•${c.reset} READ, LIST (and publish scopes if you sync writes)`,
+  ];
+
+  const foot = [``, `Save the key, then retry.`];
+
+  const chunks = [intro];
+  if (feature === "mcp") chunks.push(mcp);
+  else if (feature === "providers") chunks.push(providers, completions);
+  else if (feature === "configs") chunks.push(configs);
+  else if (feature === "skills") chunks.push(prompts);
+  else if (feature === "models") chunks.push(providers, completions);
+
+  return chunks.flat().concat(foot).join("\n");
 }
