@@ -46,11 +46,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/portkey-ai/cli.git"
+    "url": "https://github.com/Portkey-AI/cli"
   },
   "homepage": "https://portkey.ai/docs",
   "bugs": {
-    "url": "https://github.com/portkey-ai/cli/issues"
+    "url": "https://github.com/Portkey-AI/cli/issues"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0"
