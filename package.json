@@ -46,7 +46,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/portkey-ai/clit.git"
+    "url": "git+https://github.com/portkey-ai/cli.git"
   },
   "homepage": "https://portkey.ai/docs",
   "bugs": {
