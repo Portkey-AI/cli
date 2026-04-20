@@ -64,7 +64,7 @@ export async function doSkillsSync(args) {
   p.note(
     `${c.bold}Source:${c.reset} every skill is fetched from your ${c.bold}Portkey workspace${c.reset} (Prompt Partials API). ` +
       `Nothing is “synced” from random local folders — the CLI downloads the latest content from Portkey.\n` +
-      `${c.bold}Destination:${c.reset} you choose which agent(s) get folders like ${c.dim}.claude/skills/<slug>/SKILL.md${c.reset} or ${c.dim}.codex/skills/...${c.reset}, ` +
+      `${c.bold}Destination:${c.reset} you choose which agent(s) get folders like ${c.dim}.claude/skills/<slug>/SKILL.md${c.reset} or ${c.dim}.agents/skills/...${c.reset} (Codex), ` +
       `and whether that is ${c.bold}this repo${c.reset} or ${c.bold}--global${c.reset} (${c.dim}~/...${c.reset}).`,
     "What skills sync does"
   );

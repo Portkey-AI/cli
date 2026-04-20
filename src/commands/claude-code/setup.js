@@ -1225,14 +1225,15 @@ async function runSkillsSelection(args, portkeyKey, gateway, projectRoot, defaul
   let useGlobal = args.global || !projectRoot;
   if (!args.yes && !args.global && projectRoot) {
     // Show paths specific to the chosen agent (or generic if unknown)
+    // Codex reads skills from `.agents/skills`, not `.codex/skills`.
     const agentDir = defaultAgent
-      ? { claude: ".claude", cursor: ".cursor", codex: ".codex" }[defaultAgent] || ".claude"
+      ? { claude: ".claude", cursor: ".cursor", codex: ".agents" }[defaultAgent] || ".claude"
       : null;
 
-    const projectHint  = agentDir ? `.${agentDir}/skills/` : ".claude/skills/  .cursor/skills/  .codex/skills/";
+    const projectHint  = agentDir ? `${agentDir}/skills/` : ".claude/skills/  .cursor/skills/  .agents/skills/";
     const personalHint = agentDir
       ? `~/${agentDir}/skills/`
-      : "~/.claude/skills/  ~/.cursor/skills/  ~/.codex/skills/";
+      : "~/.claude/skills/  ~/.cursor/skills/  ~/.agents/skills/";
 
     const scopePick = await p.select({
       message: "Where should skills be installed?",
@@ -1270,7 +1271,7 @@ async function runSkillsSelection(args, portkeyKey, gateway, projectRoot, defaul
     const agentOptions = [
       { value: "claude", label: "Claude Code", hint: (useGlobal ? "~/.claude/skills/" : ".claude/skills/") + (installed.includes("claude") ? "  ✓" : "") },
       { value: "cursor", label: "Cursor",       hint: (useGlobal ? "~/.cursor/skills/" : ".cursor/skills/") + (installed.includes("cursor") ? "  ✓" : "") },
-      { value: "codex",  label: "Codex",        hint: (useGlobal ? "~/.codex/skills/"  : ".codex/skills/")  + (installed.includes("codex")  ? "  ✓" : "") },
+      { value: "codex",  label: "Codex",        hint: (useGlobal ? "~/.agents/skills/" : ".agents/skills/") + (installed.includes("codex")  ? "  ✓" : "") },
     ];
     p.note(
       `${c.dim}${MULTISELECT_HINT}${c.reset}\n` +
