@@ -2,10 +2,6 @@
   "name": "portkey",
   "version": "1.0.0",
   "description": "The Portkey CLI — one command to set up your AI coding agent with gateway routing, MCP tools, and team skills.",
-  "main": "src/index.js",
-  "exports": {
-    ".": "./src/index.js"
-  },
   "bin": {
     "portkey": "src/index.js"
   },
@@ -14,6 +10,9 @@
     "LICENSE",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "start": "node src/index.js",
     "test": "vitest run",
@@ -47,11 +46,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/portkey-ai/agent-cli.git"
+    "url": "git+https://github.com/portkey-ai/clit.git"
   },
   "homepage": "https://portkey.ai/docs",
   "bugs": {
-    "url": "https://github.com/portkey-ai/agent-cli/issues"
+    "url": "https://github.com/portkey-ai/cli/issues"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0"
