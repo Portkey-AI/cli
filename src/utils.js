@@ -278,9 +278,11 @@ export const AGENT_SKILLS_DIRS = {
   cursor: (root, global) => global
     ? path.join(os.homedir(), ".cursor", "skills")
     : path.join(root || process.cwd(), ".cursor", "skills"),
+  // Codex discovers skills at `~/.agents/skills` (USER) and `<repo>/.agents/skills` (REPO),
+  // walking up to the repo root. See https://developers.openai.com/codex/skills
   codex:  (root, global) => global
-    ? path.join(os.homedir(), ".codex", "skills")
-    : path.join(root || process.cwd(), ".codex", "skills"),
+    ? path.join(os.homedir(), ".agents", "skills")
+    : path.join(root || process.cwd(), ".agents", "skills"),
 };
 
 /** Detect which of the supported agents are already configured. */

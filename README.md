@@ -53,7 +53,7 @@ npx portkey mcp add
 1. Run `npx portkey` → choose **Setup Codex**.
 2. Paste your Portkey API key when asked.
 3. Pick routing (**provider** or **config**). The CLI updates `.codex/config.toml` with `base_url`, `PORTKEY_API_KEY`, and `wire_api` (`chat` = Chat Completions, `responses` = Responses API — same as [Portkey's Codex guide](https://portkey.ai/docs)).
-4. Optionally add **MCP** (same Portkey registry) and sync **skills** into `.codex/skills/`.
+4. Optionally add **MCP** (same Portkey registry) and sync **skills** into `.agents/skills/` (Codex's skill discovery location).
 
 If you have **several Model Catalog providers**, the wizard can append extra `[model_providers.portkey-<slug>]` tables (each with its own `wire_api`). Switch the active route by editing `model_provider` and `model` (`@<slug>/<model-id>`) at the top of the file.
 
@@ -83,7 +83,7 @@ npx portkey skills sync --yes --agent codex
 | `npx portkey mcp add`              | Pick **Claude Code** or **Codex**, then servers from Portkey |
 
 
-**Skills:** list comes from the **Portkey API** for your workspace. You choose **where files are written** (`.claude/skills`, `.codex/skills`, `.cursor/skills`, project vs `--global`).
+**Skills:** list comes from the **Portkey API** for your workspace. You choose **where files are written** (`.claude/skills`, `.agents/skills` for Codex, `.cursor/skills`, project vs `--global`).
 
 **MCP:** same registry on Portkey; Claude uses `~/.claude.json` / `.mcp.json`, Codex `[mcp_servers.*]` in `.codex/config.toml`.
 
