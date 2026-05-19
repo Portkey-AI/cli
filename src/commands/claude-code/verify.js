@@ -213,7 +213,11 @@ export async function doVerify(args = {}) {
   // ── Resolve gateway + test model ─────────────────────────────────────────
   const existing   = readExistingConfig();
   const gateway    = process.env.ANTHROPIC_BASE_URL || existing.gateway || PORTKEY_GATEWAY;
-  const testModel  = existing.model || "claude-haiku-4-20250514";
+  const testModel  = existing.model;
+  if (!testModel) {
+    err("No model configured — run: portkey setup");
+    return;
+  }
 
   info(`Gateway: ${gateway}`);
   console.log();

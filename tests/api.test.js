@@ -88,6 +88,19 @@ describe("fetchModels", () => {
     expect(data.map((m) => m.id)).toContain("claude-opus-4-20250514");
     expect(data.map((m) => m.id)).toContain("claude-sonnet-4-20250514");
   });
+
+  it("parses Cohere-style { models: [{ name, endpoints }] }", async () => {
+    globalThis.fetch = mockFetch({
+      models: [
+        { name: "command-r-08-2024", endpoints: ["chat"] },
+        { name: "embed-v4.0", endpoints: ["embed"] },
+      ],
+    });
+    const { data, error } = await fetchModels("pk-test", "cohere-vk", "https://api.portkey.ai");
+    expect(error).toBeNull();
+    expect(data.map((m) => m.id).sort()).toEqual(["command-r-08-2024", "embed-v4.0"]);
+    expect(data.find((m) => m.id === "embed-v4.0")?.hint).toBe("embed");
+  });
 });
 
 // ── fetchMcpServers ───────────────────────────────────────────────────────────
