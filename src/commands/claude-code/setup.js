@@ -54,25 +54,6 @@ import {
   normalizeCodexWireApi,
 } from "./codex-config-toml.js";
 
-// Fallback suggestions when `/v1/models` returns nothing (some gateways don't list models).
-const MODEL_DEFAULTS = {
-  anthropic: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-20250514", "claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022"],
-  openai:    ["gpt-4o", "gpt-4o-mini", "o3", "o4-mini", "gpt-4-turbo"],
-  azure:     ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
-  google:    ["gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro"],
-  mistral:   ["mistral-large-latest", "mistral-small-latest"],
-  cohere:    ["command-r-plus", "command-r"],
-  groq:      ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
-  deepseek:  ["deepseek-chat", "deepseek-reasoner"],
-};
-
-function getModelOptions(providerType) {
-  const key = Object.keys(MODEL_DEFAULTS).find((k) =>
-    (providerType || "").toLowerCase().includes(k)
-  );
-  return MODEL_DEFAULTS[key] || [];
-}
-
 const PORTKEY_CUSTOM_MODEL = "__portkey_custom_model__";
 
 /** Normalize pasted `@virtual-key/model` to the short id stored in config */
@@ -311,7 +292,6 @@ export async function doSetup(args) {
   // ── Step 3: Provider or Config selection ──────────────────────────────────
   let mode         = args.config ? "config" : "provider";
   let providerSlug = args.provider || "";
-  let providerType = "";
   let configId     = args.config  || "";
   let extraHeaders = "";
 
@@ -354,7 +334,6 @@ export async function doSetup(args) {
 
     if (providers.length === 1 && !args.provider) {
       providerSlug = providers[0].slug;
-      providerType = (providers[0].provider || "").toLowerCase();
       ok(`Using @${providerSlug} (your only provider)`);
       await sleep(400);
     } else if (!providerSlug) {
@@ -369,11 +348,6 @@ export async function doSetup(args) {
         })),
       });
       if (p.isCancel(providerSlug)) return p.outro("Setup cancelled.");
-      const selected = providers.find((pv) => pv.slug === providerSlug);
-      if (selected) providerType = (selected.provider || "").toLowerCase();
-    } else {
-      const selected = providers.find((pv) => pv.slug === providerSlug.replace(/^@/, ""));
-      if (selected) providerType = (selected.provider || "").toLowerCase();
     }
 
     providerSlug = normalizeProvider(providerSlug).slice(1);
@@ -428,7 +402,6 @@ export async function doSetup(args) {
   let aliasPickMerged  = [];
 
   if (!args.yes && mode === "provider") {
-    const curated = getModelOptions(providerType);
     const isCodex = targetAgent === "codex";
 
     const spin = p.spinner();
@@ -450,7 +423,7 @@ export async function doSetup(args) {
             ? `Could not load models: ${modelsErr}`
             : catalogModels?.length
               ? `Found ${catalogModels.length} model${catalogModels.length !== 1 ? "s" : ""} for @${providerSlug}`
-              : "No models returned for this provider — pick a suggestion or type an ID"
+              : "No models returned for this provider — type a model ID"
     );
     await sleep(300);
     if (permDenied) {
@@ -464,40 +437,19 @@ export async function doSetup(args) {
           `This feature may not be available for your workspace (often disabled on the current plan).`,
           `Contact ${c.cyan}${c.reset}support@portkey.ai${c.reset} for help.`,
           ``,
-          `You can still continue: type the ${c.bold}${c.reset}model ID${c.reset} (Example: claude-sonnet-4-6) from model catalog in the next step.`,
+          `You can still continue: type the ${c.bold}${c.reset}model ID${c.reset} from your model catalog in the next step.`,
         ].join("\n"),
         "Model list unavailable"
       );
       await sleep(200);
     }
 
-    // On 403, do not inject curated defaults — they go stale; user must type a model ID.
-    const wantModel =
-      model || (!permDenied ? curated[0] : "") || "";
-
-    const fromApi = (catalogModels || []).map((m) => m.id).filter(Boolean);
-    const merged = [];
-    const seen = new Set();
-    for (const id of fromApi) {
-      if (!seen.has(id)) {
-        seen.add(id);
-        merged.push(id);
-      }
-    }
-    if (!permDenied) {
-      for (const id of curated) {
-        if (!seen.has(id)) {
-          seen.add(id);
-          merged.push(id);
-        }
-      }
-    }
-
+    const merged = (catalogModels || []).map((m) => m.id).filter(Boolean);
     aliasPickMerged = merged;
 
     const manualFirst = !permDenied && catalogUnavailable && merged.length > 0;
     const skipSelect =
-      permDenied || (catalogUnavailable && merged.length === 0);
+      permDenied || (catalogUnavailable && merged.length === 0) || merged.length === 0;
 
     const options = [];
     if (manualFirst) {
@@ -507,7 +459,12 @@ export async function doSetup(args) {
         hint:  "when the list API is off",
       });
     }
-    options.push(...merged.map((id) => ({ value: id, label: id })));
+    options.push(
+      ...(catalogModels || []).map((m) => ({
+        value: m.id,
+        label: m.hint ? `${m.id}  · ${m.hint}` : m.id,
+      }))
+    );
     if (!manualFirst) {
       options.push({
         value: PORTKEY_CUSTOM_MODEL,
@@ -529,7 +486,7 @@ export async function doSetup(args) {
         message: isCodex
           ? "Which model should Codex use?"
           : catalogUnavailable
-            ? "Default model (type manually or pick a suggestion)"
+            ? "Default model (type manually or pick from list)"
             : "Default model",
         initialValue: initial,
         options,
@@ -547,10 +504,7 @@ export async function doSetup(args) {
           : permDenied || catalogUnavailable
             ? "Default model ID for this virtual key"
             : "Default model ID",
-        placeholder: permDenied
-          ? "paste the model name your virtual key uses"
-          : wantModel ||
-            (isCodex ? "e.g. gpt-4o" : "e.g. claude-sonnet-4-20250514"),
+        placeholder: "paste the model name your virtual key uses",
         initialValue: model || "",
         validate: (v) =>
           !String(v || "").trim()
@@ -568,12 +522,12 @@ export async function doSetup(args) {
 
   if (targetAgent === "codex" && mode === "config" && !String(model || "").trim()) {
     if (args.yes) {
-      model = args.model || "gpt-4o";
+      model = args.model || "";
     } else {
       const t = await p.text({
         message: "Default model name for Codex (Portkey routes via your Config)",
-        placeholder: "e.g. gpt-4o",
-        initialValue: args.model || "gpt-4o",
+        placeholder: "model ID your Config will route",
+        initialValue: args.model || "",
         validate: (v) => (!String(v || "").trim() ? "Enter a model name" : undefined),
       });
       if (p.isCancel(t)) return p.outro("Setup cancelled.");
@@ -676,7 +630,7 @@ export async function doSetup(args) {
         if (picked === PORTKEY_CUSTOM_MODEL) {
           const manual = await p.text({
             message:      label,
-            placeholder:  hintId || model || "e.g. claude-sonnet-4-20250514",
+            placeholder:  hintId || model || "paste the model name your virtual key uses",
             initialValue: hintId || model || "",
             validate:     (v) => (!String(v || "").trim() ? "Model ID is required" : undefined),
           });
@@ -803,7 +757,7 @@ export async function doSetup(args) {
         if (p.isCancel(wExtra)) break;
         const modExtra = await p.text({
           message: `Model id for @${slugPick} (becomes @${slugPick}/<id>)`,
-          placeholder: "e.g. gpt-4o",
+          placeholder: "model ID exposed by this provider",
           initialValue: model,
           validate: (v) => (!String(v || "").trim() ? "Model id is required" : undefined),
         });

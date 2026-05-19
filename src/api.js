@@ -110,12 +110,15 @@ export async function fetchModels(portkeyKey, providerSlug, gateway) {
       "x-portkey-provider": providerHeader,
     });
 
-    const rows = (data.data || []).filter(
-      (m) => m && (m.id != null || m.slug != null)
+    const rows = (data.data || data.models || []).filter(
+      (m) => m && (m.id != null || m.slug != null || m.name != null)
     );
 
+    const rawId = (m) =>
+      m.id != null ? String(m.id) : m.slug != null ? String(m.slug) : String(m.name || "");
+
     const toShortId = (m) => {
-      const id = m.id != null ? String(m.id) : "";
+      const id = rawId(m);
       if (id.startsWith(prefix)) {
         return (m.slug || id.slice(prefix.length)).replace(/^@+/, "").trim();
       }
@@ -128,14 +131,20 @@ export async function fetchModels(portkeyKey, providerSlug, gateway) {
       return id.replace(/^@+/, "").trim();
     };
 
-    const prefixed = rows.filter(
-      (m) => typeof m.id === "string" && m.id.startsWith(prefix)
-    );
+    const prefixed = rows.filter((m) => rawId(m).startsWith(prefix));
     const source = prefixed.length > 0 ? prefixed : rows;
 
     const seen = new Set();
     const models = source
-      .map((m) => ({ id: toShortId(m) }))
+      .map((m) => {
+        const id = toShortId(m);
+        const ep = m.endpoints;
+        const hint =
+          Array.isArray(ep) && ep.length && !ep.includes("chat") && !ep.includes("generate")
+            ? ep[0]
+            : "";
+        return hint ? { id, hint } : { id };
+      })
       .filter((m) => {
         if (!m.id || seen.has(m.id)) return false;
         seen.add(m.id);
@@ -284,7 +293,10 @@ export async function fetchSkillContent(portkeyKey, gateway, identifier) {
  * Send a minimal chat completion to verify the gateway is reachable.
  * Returns { ok: true, model, latencyMs } or { ok: false, error }.
  */
-export async function testGatewayConnection(portkeyKey, extraHeaders, gateway) {
+export async function testGatewayConnection(portkeyKey, extraHeaders, gateway, model) {
+  if (!model || !String(model).trim()) {
+    return { ok: false, error: "model is required", latencyMs: 0 };
+  }
   const url = `${base(gateway)}/v1/chat/completions`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -307,7 +319,7 @@ export async function testGatewayConnection(portkeyKey, extraHeaders, gateway) {
       method: "POST",
       headers: parsedHeaders,
       body: JSON.stringify({
-        model: "claude-haiku-4-20250514",
+        model: String(model).trim(),
         max_tokens: 8,
         messages: [{ role: "user", content: "Say: ok" }],
       }),
