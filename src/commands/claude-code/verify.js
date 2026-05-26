@@ -211,9 +211,12 @@ export async function doVerify(args = {}) {
   }
 
   // ── Resolve gateway + test model ─────────────────────────────────────────
+  // `readExistingConfig()` only reads settings.json layers. When the user picked
+  // location "env" during `portkey setup`, the model lives in their shell rc as
+  // ANTHROPIC_MODEL — check process.env first so verify works for that path too.
   const existing   = readExistingConfig();
   const gateway    = process.env.ANTHROPIC_BASE_URL || existing.gateway || PORTKEY_GATEWAY;
-  const testModel  = existing.model;
+  const testModel  = process.env.ANTHROPIC_MODEL || existing.model;
   if (!testModel) {
     err("No model configured — run: portkey setup");
     return;
