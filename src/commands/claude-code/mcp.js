@@ -16,6 +16,7 @@ import {
   findProjectRoot,
   detectShellRc,
   writeShellRc,
+  warnIfFileGroupOrWorldReadable,
   getMcpFilePath,
   settingsSetMcp,
   settingsRemoveMcp,
@@ -338,6 +339,7 @@ export async function doMcpAdd(args) {
       `.mcp.json references ${c.bold}${PORTKEY_KEY_ENV_REF}${c.reset} (no secret committed). ` +
         `Your key was saved to ${c.bold}${shellRc}${c.reset} — run ${c.bold}source ${shellRc}${c.reset} or open a new terminal.`
     );
+    warnIfFileGroupOrWorldReadable(shellRc, `your ${PORTKEY_KEY_ENV}`);
   } else if (committed) {
     info(
       `.mcp.json references ${c.bold}${PORTKEY_KEY_ENV_REF}${c.reset} — no secret committed. ` +

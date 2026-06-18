@@ -25,6 +25,7 @@ import {
   settingsSetKey,
   settingsSetMcp,
   writeShellRc,
+  warnIfFileGroupOrWorldReadable,
   normalizeProvider,
   isClaudeInstalled,
   readExistingConfig,
@@ -843,6 +844,7 @@ export async function doSetup(args) {
       "# ── End Portkey + Codex ──",
     ].join("\n"));
     ok(`PORTKEY_API_KEY written to ${shellRc}`);
+    warnIfFileGroupOrWorldReadable(shellRc, "your PORTKEY_API_KEY");
 
     const reloadCmd = isPwsh ? `. ${shellRc}` : `source ${shellRc}`;
     console.log();
@@ -884,6 +886,7 @@ export async function doSetup(args) {
 
       writeShellRc(targetFile, lines.join("\n"));
       ok(`Gateway config written to ${targetFile}`);
+      warnIfFileGroupOrWorldReadable(targetFile, "your ANTHROPIC_AUTH_TOKEN");
 
     } else {
       // Write to settings.json. "project-shared" is committed to git, so reference
@@ -931,6 +934,7 @@ export async function doSetup(args) {
       } else {
         ok(`Auth token also written to ${shellRc}`);
       }
+      warnIfFileGroupOrWorldReadable(shellRc, `your ${shellVar}`);
     }
 
     // Reload reminder (once, at the end)

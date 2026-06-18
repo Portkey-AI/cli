@@ -59,14 +59,35 @@ export function mask(key) {
 // ── Secure write ─────────────────────────────────────────────────────────────
 
 /**
- * Write a file that may contain a secret (API key / auth token) with owner-only
- * permissions (0600). `fs.writeFileSync`'s `mode` only applies when the file is
- * created, so we also `chmod` to tighten any pre-existing file on the default
- * umask (which would otherwise leave it world-readable at 0644).
+ * Write a file the CLI itself authors and that may contain a secret (API key /
+ * auth token) with owner-only permissions (0600). `fs.writeFileSync`'s `mode`
+ * only applies when the file is created, so we also `chmod` to tighten any
+ * pre-existing file on the default umask (which would otherwise leave it
+ * world-readable at 0644).
+ *
+ * Use this only for files we own (e.g. `.mcp.json`, `.claude/settings.json`).
+ * Do NOT use it for user-managed files like shell rc — their permissions are the
+ * user's choice; warn with `warnIfFileGroupOrWorldReadable` instead.
  */
 export function writeFileSecure(filePath, data) {
   fs.writeFileSync(filePath, data, { mode: 0o600 });
   try { fs.chmodSync(filePath, 0o600); } catch {}
+}
+
+/**
+ * Warn (without modifying anything) when a file we just wrote a secret into is
+ * readable by group or other. Intended for user-managed files such as shell rc,
+ * where we deliberately never change permissions implicitly.
+ */
+export function warnIfFileGroupOrWorldReadable(filePath, secretLabel = "a credential") {
+  let mode;
+  try { mode = fs.statSync(filePath).mode & 0o777; } catch { return; }
+  if (mode & 0o077) {
+    warn(
+      `${filePath} is readable by other users (permissions ${mode.toString(8)}) and now contains ${secretLabel}. ` +
+        `On a shared machine, restrict it with: ${c.bold}chmod 600 ${filePath}${c.reset}`
+    );
+  }
 }
 
 // ── JSON helpers ─────────────────────────────────────────────────────────────
@@ -330,8 +351,10 @@ export function writeShellRc(filePath, block) {
     ""
   );
   content += "\n" + block + "\n";
-  // Shell rc may carry an exported API key — keep it owner-only.
-  writeFileSecure(filePath, content);
+  // Preserve the user's existing permissions — never implicitly chmod a
+  // user-managed shell rc. Callers warn via warnIfFileGroupOrWorldReadable
+  // when the block contains a secret.
+  fs.writeFileSync(filePath, content);
 }
 
 export function removeShellRcBlock(filePath) {
