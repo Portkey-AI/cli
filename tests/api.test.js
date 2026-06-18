@@ -167,6 +167,16 @@ describe("buildClaudeMcpHttpConfig", () => {
       url: "https://mcp.portkey.ai/linear/mcp",
     });
   });
+
+  it("uses the env-var reference instead of the live key when keyRef is set (committed scope)", () => {
+    const cfg = buildClaudeMcpHttpConfig(
+      { url: "https://mcp.portkey.ai/linear/mcp" },
+      "pk-secret-123",
+      { keyRef: "${PORTKEY_API_KEY}" }
+    );
+    expect(cfg.headers["x-portkey-api-key"]).toBe("${PORTKEY_API_KEY}");
+    expect(JSON.stringify(cfg)).not.toContain("pk-secret-123");
+  });
 });
 
 // ── portkeyMcpRequiresOAuth ───────────────────────────────────────────────────

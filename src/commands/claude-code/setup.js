@@ -8,6 +8,8 @@ import {
   VERSION,
   PORTKEY_GATEWAY,
   PORTKEY_DASHBOARD,
+  PORTKEY_KEY_ENV,
+  PORTKEY_KEY_ENV_REF,
   c,
   ok,
   err,
@@ -136,7 +138,7 @@ export async function doSetup(args) {
     if (projectRoot) {
       locationOptions.push(
         { value: "project-local",  label: "Project (private)",   hint: ".claude/settings.local.json  (gitignored)" },
-        { value: "project-shared", label: "Project (shared)",    hint: ".claude/settings.json  (committed to git)" },
+        { value: "project-shared", label: "Project (shared)",    hint: ".claude/settings.json  (committed; key read from PORTKEY_API_KEY env)" },
       );
     }
     const picked = await p.select({
@@ -884,10 +886,13 @@ export async function doSetup(args) {
       ok(`Gateway config written to ${targetFile}`);
 
     } else {
-      // Write to settings.json
+      // Write to settings.json. "project-shared" is committed to git, so reference
+      // the key via ${PORTKEY_API_KEY} (Claude expands it from env at read time)
+      // instead of embedding the secret in a tracked file.
+      const committed = location === "project-shared";
       const envPairs = {
         ANTHROPIC_BASE_URL:       gateway,
-        ANTHROPIC_AUTH_TOKEN:     portkeyKey,
+        ANTHROPIC_AUTH_TOKEN:     committed ? PORTKEY_KEY_ENV_REF : portkeyKey,
         ANTHROPIC_CUSTOM_HEADERS: extraHeaders,
       };
       if (setModelMappings) {
@@ -899,23 +904,33 @@ export async function doSetup(args) {
       if (model) settingsSetKey(targetFile, "model", model);
       ok(`Gateway config written to ${targetFile}`);
 
-      // Also write auth token to shell RC so Claude Code can start
+      // Keep the real secret in the user's shell rc (owner-only), never in the
+      // committed file. For a committed config the env var must be PORTKEY_API_KEY
+      // so the ${PORTKEY_API_KEY} reference resolves; otherwise export the token directly.
+      const shellVar = committed ? PORTKEY_KEY_ENV : "ANTHROPIC_AUTH_TOKEN";
       const shellRc = detectShellRc();
       const isFish  = shellRc.endsWith("config.fish");
       const isPwsh  = shellRc.endsWith(".ps1");
       const isNu    = shellRc.endsWith(".nu");
       let exportLine;
-      if (isFish)      exportLine = `set -gx ANTHROPIC_AUTH_TOKEN "${portkeyKey}"`;
-      else if (isPwsh) exportLine = `$env:ANTHROPIC_AUTH_TOKEN = "${portkeyKey}"`;
-      else if (isNu)   exportLine = `$env.ANTHROPIC_AUTH_TOKEN = "${portkeyKey}"`;
-      else             exportLine = `export ANTHROPIC_AUTH_TOKEN="${portkeyKey}"`;
+      if (isFish)      exportLine = `set -gx ${shellVar} "${portkeyKey}"`;
+      else if (isPwsh) exportLine = `$env:${shellVar} = "${portkeyKey}"`;
+      else if (isNu)   exportLine = `$env.${shellVar} = "${portkeyKey}"`;
+      else             exportLine = `export ${shellVar}="${portkeyKey}"`;
 
       writeShellRc(shellRc, [
         `# ── Portkey + Claude Code (v${VERSION}) ──`,
         exportLine,
         "# ── End Portkey + Claude Code ──",
       ].join("\n"));
-      ok(`Auth token also written to ${shellRc}`);
+      if (committed) {
+        warn(
+          `${targetFile} is committed to git and references ${c.bold}${PORTKEY_KEY_ENV_REF}${c.reset} — no secret written to it. ` +
+            `Your key was saved to ${c.bold}${shellRc}${c.reset}; teammates set ${c.bold}${PORTKEY_KEY_ENV}${c.reset} themselves.`
+        );
+      } else {
+        ok(`Auth token also written to ${shellRc}`);
+      }
     }
 
     // Reload reminder (once, at the end)
@@ -1140,11 +1155,14 @@ async function runMcpSelection(
     mcpScope === "project" ? "project-shared" : "global",
     projectRoot
   );
+  // "project" scope writes a git-committed .mcp.json — reference the key via
+  // ${PORTKEY_API_KEY} rather than embedding the secret in a tracked file.
+  const mcpKeyRef = mcpScope === "project" ? PORTKEY_KEY_ENV_REF : null;
   const mcpEntries = {};
   for (const slug of selected) {
     const srv = servers.find((sv) => sv.slug === slug);
     if (!srv) continue;
-    mcpEntries[`portkey-${slug}`] = buildClaudeMcpHttpConfig(srv, portkeyKey);
+    mcpEntries[`portkey-${slug}`] = buildClaudeMcpHttpConfig(srv, portkeyKey, { keyRef: mcpKeyRef });
   }
 
   settingsSetMcp(mcpFile, mcpEntries, {
@@ -1161,7 +1179,7 @@ async function runMcpSelection(
   }
 
   const mcpScopeLabel =
-    mcpScope === "project" ? `repo .mcp.json  ${c.dim}(team can commit)${c.reset}` :
+    mcpScope === "project" ? `repo .mcp.json  ${c.dim}(uses ${PORTKEY_KEY_ENV_REF}, safe to commit)${c.reset}` :
     mcpScope === "local"   ? `this project only  ${c.dim}(~/.claude.json)${c.reset}` :
                              `all projects  ${c.dim}(~/.claude.json)${c.reset}`;
   ok(`${selected.length} MCP server${selected.length !== 1 ? "s" : ""} added  [${mcpScopeLabel}]`);

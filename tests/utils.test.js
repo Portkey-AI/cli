@@ -15,7 +15,12 @@ import {
   settingsReadMcp,
   writeShellRc,
   removeShellRcBlock,
+  writeFileSecure,
 } from "../src/utils.js";
+
+function mode(file) {
+  return (fs.statSync(file).mode & 0o777).toString(8);
+}
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "portkey-test-"));
@@ -137,6 +142,43 @@ describe("jsonRead", () => {
 
   it("returns undefined for missing file", () => {
     expect(jsonRead(path.join(dir, "nope.json"), "a")).toBeUndefined();
+  });
+});
+
+// ── writeFileSecure (0600 for secret-bearing files) ───────────────────────────
+
+describe("writeFileSecure", () => {
+  let dir;
+  beforeEach(() => { dir = tmpDir(); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it("creates new files with owner-only 0600 permissions", () => {
+    const file = path.join(dir, "secret.json");
+    writeFileSecure(file, "secret");
+    expect(mode(file)).toBe("600");
+  });
+
+  it("tightens a pre-existing world-readable (0644) file to 0600", () => {
+    const file = path.join(dir, "existing.json");
+    fs.writeFileSync(file, "old", { mode: 0o644 });
+    expect(mode(file)).toBe("644");
+    writeFileSecure(file, "new");
+    expect(mode(file)).toBe("600");
+  });
+
+  it("is used by settings/mcp/shellrc writers so secrets are never world-readable", () => {
+    const settings = path.join(dir, "settings.json");
+    settingsSetEnv(settings, { ANTHROPIC_AUTH_TOKEN: "pk-secret" });
+    expect(mode(settings)).toBe("600");
+
+    const mcp = path.join(dir, ".mcp.json");
+    settingsSetMcp(mcp, { srv: { type: "http", url: "u" } }, { scope: "project" });
+    expect(mode(mcp)).toBe("600");
+
+    const rc = path.join(dir, ".bashrc");
+    fs.writeFileSync(rc, "# rc", { mode: 0o644 });
+    writeShellRc(rc, "export ANTHROPIC_AUTH_TOKEN=pk-secret");
+    expect(mode(rc)).toBe("600");
   });
 });
 

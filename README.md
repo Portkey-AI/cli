@@ -39,6 +39,14 @@ npx portkey mcp add
 
 Config goes mainly into your shell profile and/or `.claude/` (the wizard explains each choice). Open a **new terminal** (or `source` your profile) after setup, then run `claude` as usual.
 
+> **Shared / committed config (`PORTKEY_API_KEY`).** When you choose a git-tracked destination — `mcp add` → **Repo file (.mcp.json)** or `setup` → **Project (shared)** (`.claude/settings.json`) — the CLI **never** writes your key into the committed file. It writes the reference `"${PORTKEY_API_KEY}"` (Claude Code expands it from the environment at read time) and stores the real key in your shell profile (owner-only, `0600`). Each teammate just exports their own `PORTKEY_API_KEY`:
+>
+> ```bash
+> export PORTKEY_API_KEY="pk-..."   # add to ~/.zshrc, ~/.bashrc, or CI secrets
+> ```
+>
+> All files the CLI writes that hold a secret (shell profile, `~/.claude/settings.json`, `~/.codex/config.toml`) are created with `0600` permissions.
+
 **Later, from your project folder:**
 
 ```bash
