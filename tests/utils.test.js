@@ -15,6 +15,7 @@ import {
   settingsReadMcp,
   writeShellRc,
   removeShellRcBlock,
+  readExistingConfig,
 } from "../src/utils.js";
 
 function tmpDir() {
@@ -294,5 +295,49 @@ describe("writeShellRc + removeShellRcBlock", () => {
     const file = path.join(dir, ".zshrc");
     fs.writeFileSync(file, "# nothing here\n");
     expect(removeShellRcBlock(file)).toBe(false);
+  });
+});
+
+// ── readExistingConfig (key discovery + placeholder guard) ────────────────────
+
+describe("readExistingConfig", () => {
+  let dir, cwd;
+  beforeEach(() => {
+    dir = tmpDir();
+    fs.mkdirSync(path.join(dir, ".git"), { recursive: true });        // mark project root
+    fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+    cwd = process.cwd();
+    process.chdir(dir);
+  });
+  afterEach(() => {
+    process.chdir(cwd);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  function writeSharedSettings(env) {
+    fs.writeFileSync(
+      path.join(dir, ".claude", "settings.json"),
+      JSON.stringify({ env }, null, 2)
+    );
+  }
+
+  it("recovers a literal key from an existing (pre-fix) config", () => {
+    writeSharedSettings({
+      ANTHROPIC_BASE_URL: "https://api.portkey.ai/v1",
+      ANTHROPIC_AUTH_TOKEN: "pk-live-REAL-KEY",
+    });
+    const cfg = readExistingConfig();
+    expect(cfg.found).toBe(true);
+    expect(cfg.portkeyKey).toBe("pk-live-REAL-KEY");
+  });
+
+  it("does NOT return the ${PORTKEY_API_KEY} placeholder as a usable key", () => {
+    writeSharedSettings({
+      ANTHROPIC_BASE_URL: "https://api.portkey.ai/v1",
+      ANTHROPIC_AUTH_TOKEN: "${PORTKEY_API_KEY}",
+    });
+    const cfg = readExistingConfig();
+    expect(cfg.found).toBe(true);
+    expect(cfg.portkeyKey).toBe("");
   });
 });
