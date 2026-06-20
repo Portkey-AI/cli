@@ -1,6 +1,6 @@
 {
   "name": "portkey",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "The Portkey CLI — one command to set up your AI coding agent with gateway routing, MCP tools, and team skills.",
   "bin": {
     "portkey": "src/index.js"
