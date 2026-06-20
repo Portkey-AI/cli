@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -16,7 +16,13 @@ import {
   writeShellRc,
   removeShellRcBlock,
   readExistingConfig,
+  writeFileSecure,
+  warnIfFileGroupOrWorldReadable,
 } from "../src/utils.js";
+
+function mode(file) {
+  return (fs.statSync(file).mode & 0o777).toString(8);
+}
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "portkey-test-"));
@@ -138,6 +144,76 @@ describe("jsonRead", () => {
 
   it("returns undefined for missing file", () => {
     expect(jsonRead(path.join(dir, "nope.json"), "a")).toBeUndefined();
+  });
+});
+
+// ── 
+(0600 for secret-bearing files) ───────────────────────────
+
+describe("writeFileSecure", () => {
+  let dir;
+  beforeEach(() => { dir = tmpDir(); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it("creates new files with owner-only 0600 permissions", () => {
+    const file = path.join(dir, "secret.json");
+    writeFileSecure(file, "secret");
+    expect(mode(file)).toBe("600");
+  });
+
+  it("tightens a pre-existing world-readable (0644) file to 0600", () => {
+    const file = path.join(dir, "existing.json");
+    fs.writeFileSync(file, "old", { mode: 0o644 });
+    expect(mode(file)).toBe("644");
+    writeFileSecure(file, "new");
+    expect(mode(file)).toBe("600");
+  });
+
+  it("is used by CLI-authored settings/mcp writers so secrets are never world-readable", () => {
+    const settings = path.join(dir, "settings.json");
+    settingsSetEnv(settings, { ANTHROPIC_AUTH_TOKEN: "pk-secret" });
+    expect(mode(settings)).toBe("600");
+
+    const mcp = path.join(dir, ".mcp.json");
+    settingsSetMcp(mcp, { srv: { type: "http", url: "u" } }, { scope: "project" });
+    expect(mode(mcp)).toBe("600");
+  });
+});
+
+// ── writeShellRc preserves user-managed permissions ───────────────────────────
+
+describe("writeShellRc permission handling", () => {
+  let dir;
+  beforeEach(() => { dir = tmpDir(); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it("never changes the permissions of a pre-existing shell rc", () => {
+    const rc = path.join(dir, ".bashrc");
+    fs.writeFileSync(rc, "# rc", { mode: 0o644 });
+    writeShellRc(rc, "export ANTHROPIC_AUTH_TOKEN=pk-secret");
+    expect(mode(rc)).toBe("644");
+    expect(fs.readFileSync(rc, "utf8")).toContain("pk-secret");
+  });
+
+  it("warns (without chmod) when a world/group-readable file holds a secret", () => {
+    const rc = path.join(dir, ".bashrc");
+    fs.writeFileSync(rc, "# rc", { mode: 0o644 });
+    const calls = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((m) => calls.push(m));
+    warnIfFileGroupOrWorldReadable(rc, "your PORTKEY_API_KEY");
+    spy.mockRestore();
+    expect(mode(rc)).toBe("644");
+    expect(calls.join("\n")).toMatch(/readable by other users/);
+  });
+
+  it("stays silent for an owner-only (0600) file", () => {
+    const rc = path.join(dir, ".bashrc");
+    fs.writeFileSync(rc, "# rc", { mode: 0o600 });
+    const calls = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((m) => calls.push(m));
+    warnIfFileGroupOrWorldReadable(rc, "your PORTKEY_API_KEY");
+    spy.mockRestore();
+    expect(calls).toHaveLength(0);
   });
 });
 

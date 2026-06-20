@@ -12,6 +12,14 @@ export const VERSION = pkg.version;
 export const PORTKEY_GATEWAY = "https://api.portkey.ai";
 export const PORTKEY_DASHBOARD = "https://app.portkey.ai";
 
+/**
+ * Placeholder written into team-shared / git-committed config instead of the live key.
+ * Claude Code expands `${VAR}` in `.mcp.json` headers and `settings.json` env values,
+ * so the secret stays in the environment (e.g. the user's shell rc) and never lands in git.
+ */
+export const PORTKEY_KEY_ENV = "PORTKEY_API_KEY";
+export const PORTKEY_KEY_ENV_REF = "${" + PORTKEY_KEY_ENV + "}";
+
 /** Shown on multiselect prompts — Clack uses arrows, Space toggles, Enter submits */
 export const MULTISELECT_HINT =
   "↑↓ move highlight · Space = select or deselect · Enter = finish";
@@ -48,6 +56,40 @@ export function mask(key) {
   return "***";
 }
 
+// ── Secure write ─────────────────────────────────────────────────────────────
+
+/**
+ * Write a file the CLI itself authors and that may contain a secret (API key /
+ * auth token) with owner-only permissions (0600). `fs.writeFileSync`'s `mode`
+ * only applies when the file is created, so we also `chmod` to tighten any
+ * pre-existing file on the default umask (which would otherwise leave it
+ * world-readable at 0644).
+ *
+ * Use this only for files we own (e.g. `.mcp.json`, `.claude/settings.json`).
+ * Do NOT use it for user-managed files like shell rc — their permissions are the
+ * user's choice; warn with `warnIfFileGroupOrWorldReadable` instead.
+ */
+export function writeFileSecure(filePath, data) {
+  fs.writeFileSync(filePath, data, { mode: 0o600 });
+  try { fs.chmodSync(filePath, 0o600); } catch {}
+}
+
+/**
+ * Warn (without modifying anything) when a file we just wrote a secret into is
+ * readable by group or other. Intended for user-managed files such as shell rc,
+ * where we deliberately never change permissions implicitly.
+ */
+export function warnIfFileGroupOrWorldReadable(filePath, secretLabel = "a credential") {
+  let mode;
+  try { mode = fs.statSync(filePath).mode & 0o777; } catch { return; }
+  if (mode & 0o077) {
+    warn(
+      `${filePath} is readable by other users (permissions ${mode.toString(8)}) and now contains ${secretLabel}. ` +
+        `On a shared machine, restrict it with: ${c.bold}chmod 600 ${filePath}${c.reset}`
+    );
+  }
+}
+
 // ── JSON helpers ─────────────────────────────────────────────────────────────
 
 export function jsonRead(filePath, keyPath) {
@@ -65,7 +107,7 @@ export function settingsSetEnv(filePath, pairs) {
   if (!data.env) data.env = {};
   Object.assign(data.env, pairs);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
+  writeFileSecure(filePath, JSON.stringify(data, null, 2) + "\n");
 }
 
 export function settingsSetKey(filePath, key, value) {
@@ -73,7 +115,7 @@ export function settingsSetKey(filePath, key, value) {
   try { data = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch {}
   data[key] = value;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
+  writeFileSecure(filePath, JSON.stringify(data, null, 2) + "\n");
 }
 
 export function settingsRemoveKeys(filePath, envKeys) {
@@ -83,7 +125,7 @@ export function settingsRemoveKeys(filePath, envKeys) {
   for (const k of envKeys) delete env[k];
   if (Object.keys(env).length === 0) delete data.env;
   else data.env = env;
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
+  writeFileSecure(filePath, JSON.stringify(data, null, 2) + "\n");
 }
 
 // ── MCP settings helpers ─────────────────────────────────────────────────────
@@ -122,7 +164,7 @@ export function settingsSetMcp(filePath, servers, { scope = "user", projectPath 
   if (!target.mcpServers) target.mcpServers = {};
   Object.assign(target.mcpServers, servers);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
+  writeFileSecure(filePath, JSON.stringify(data, null, 2) + "\n");
 }
 
 /**
@@ -137,7 +179,7 @@ export function settingsRemoveMcp(filePath, names, { scope = "user", projectPath
   for (const n of names) delete servers[n];
   if (Object.keys(servers).length === 0) delete target.mcpServers;
   else target.mcpServers = servers;
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
+  writeFileSecure(filePath, JSON.stringify(data, null, 2) + "\n");
 }
 
 /**
@@ -309,6 +351,9 @@ export function writeShellRc(filePath, block) {
     ""
   );
   content += "\n" + block + "\n";
+  // Preserve the user's existing permissions — never implicitly chmod a
+  // user-managed shell rc. Callers warn via warnIfFileGroupOrWorldReadable
+  // when the block contains a secret.
   fs.writeFileSync(filePath, content);
 }
 

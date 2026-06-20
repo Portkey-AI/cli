@@ -3,7 +3,10 @@ import path from "node:path";
 import os from "node:os";
 import * as p from "@clack/prompts";
 import {
+  VERSION,
   PORTKEY_DASHBOARD,
+  PORTKEY_KEY_ENV,
+  PORTKEY_KEY_ENV_REF,
   c,
   ok,
   err,
@@ -11,6 +14,9 @@ import {
   warn,
   mask,
   findProjectRoot,
+  detectShellRc,
+  writeShellRc,
+  warnIfFileGroupOrWorldReadable,
   getMcpFilePath,
   settingsSetMcp,
   settingsRemoveMcp,
@@ -46,7 +52,7 @@ function scopeToFilePath(scope, projectRoot) {
 
 function scopeLabel(scope, projectRoot) {
   if (scope === "project") {
-    return `project  ${c.dim}(.mcp.json in repo — team can commit)${c.reset}`;
+    return `project  ${c.dim}(.mcp.json in repo — uses ${PORTKEY_KEY_ENV_REF}, safe to commit)${c.reset}`;
   }
   if (scope === "local") {
     return `this project only  ${c.dim}(~/.claude.json, not under .claude/settings*)${c.reset}`;
@@ -174,7 +180,7 @@ export async function doMcpAdd(args) {
         {
           value: "project",
           label: "Repo file (.mcp.json)",
-          hint:  "in project root — ok to commit for the team",
+          hint:  `in project root — committed; key read from ${PORTKEY_KEY_ENV} env`,
         },
         {
           value: "user",
@@ -290,11 +296,15 @@ export async function doMcpAdd(args) {
   }
 
   // ── Claude write ────────────────────────────────────────────────────────────
+  // "project" scope writes a git-committed .mcp.json, so reference the key via
+  // ${PORTKEY_API_KEY} instead of embedding the secret in a tracked file.
+  const committed = mcpScope === "project";
+  const keyRef = committed ? PORTKEY_KEY_ENV_REF : null;
   const mcpEntries = {};
   for (const slug of selected) {
     const srv = servers.find((x) => x.slug === slug);
     if (!srv) continue;
-    mcpEntries[`portkey-${slug}`] = buildClaudeMcpHttpConfig(srv, portkeyKey);
+    mcpEntries[`portkey-${slug}`] = buildClaudeMcpHttpConfig(srv, portkeyKey, { keyRef });
   }
 
   if (args.dryRun) {
@@ -307,6 +317,35 @@ export async function doMcpAdd(args) {
     scope:       mcpScope,
     projectPath: mcpScope === "local" ? (projectRoot || process.cwd()) : null,
   });
+
+  // The committed file only resolves if PORTKEY_API_KEY is in the environment.
+  // Persist the secret to the user's shell rc (owner-only) so it works out of the box.
+  if (committed && !process.env[PORTKEY_KEY_ENV]) {
+    const shellRc = detectShellRc();
+    const isFish  = shellRc.endsWith("config.fish");
+    const isPwsh  = shellRc.endsWith(".ps1");
+    const isNu    = shellRc.endsWith(".nu");
+    let exportLine;
+    if (isFish)      exportLine = `set -gx ${PORTKEY_KEY_ENV} "${portkeyKey}"`;
+    else if (isPwsh) exportLine = `$env:${PORTKEY_KEY_ENV} = "${portkeyKey}"`;
+    else if (isNu)   exportLine = `$env.${PORTKEY_KEY_ENV} = "${portkeyKey}"`;
+    else             exportLine = `export ${PORTKEY_KEY_ENV}="${portkeyKey}"`;
+    writeShellRc(shellRc, [
+      `# ── Portkey + Claude Code (v${VERSION}) ──`,
+      exportLine,
+      "# ── End Portkey + Claude Code ──",
+    ].join("\n"));
+    warn(
+      `.mcp.json references ${c.bold}${PORTKEY_KEY_ENV_REF}${c.reset} (no secret committed). ` +
+        `Your key was saved to ${c.bold}${shellRc}${c.reset} — run ${c.bold}source ${shellRc}${c.reset} or open a new terminal.`
+    );
+    warnIfFileGroupOrWorldReadable(shellRc, `your ${PORTKEY_KEY_ENV}`);
+  } else if (committed) {
+    info(
+      `.mcp.json references ${c.bold}${PORTKEY_KEY_ENV_REF}${c.reset} — no secret committed. ` +
+        `Teammates set ${c.bold}${PORTKEY_KEY_ENV}${c.reset} in their environment.`
+    );
+  }
 
   console.log();
   for (const [name, cfg] of Object.entries(mcpEntries)) {

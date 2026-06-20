@@ -164,17 +164,23 @@ export async function fetchModels(portkeyKey, providerSlug, gateway) {
  *   services.
  *
  * Never put the key in `Authorization` or use `Authorization: x-portkey-api-key: …`.
+ *
+ * `opts.keyRef` — when set (e.g. `"${PORTKEY_API_KEY}"`), the header carries this
+ * environment-variable reference instead of the literal key. Use it for any
+ * destination that is committed to git so the secret never lands in a tracked file
+ * (Claude Code expands `${VAR}` in `.mcp.json` headers at read time).
  */
-export function buildClaudeMcpHttpConfig(server, portkeyKey) {
+export function buildClaudeMcpHttpConfig(server, portkeyKey, { keyRef = null } = {}) {
   const cfg = {
     type: "http",
     url:  server.url,
   };
-  if (!portkeyKey) return cfg;
+  const headerValue = keyRef || portkeyKey;
+  if (!headerValue) return cfg;
   return {
     ...cfg,
     headers: {
-      "x-portkey-api-key": portkeyKey,
+      "x-portkey-api-key": headerValue,
     },
   };
 }
