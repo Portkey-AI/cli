@@ -1,23 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  mask,
-  normalizeProvider,
-  sortModels,
   isLikelyPortkeyApiKeyPermissionError,
   jsonRead,
-  settingsSetEnv,
-  settingsRemoveKeys,
-  settingsSetMcp,
-  settingsRemoveMcp,
-  settingsReadMcp,
-  writeShellRc,
-  removeShellRcBlock,
+  mask,
+  normalizeProvider,
   readExistingConfig,
-  writeFileSecure,
+  removeShellRcBlock,
+  settingsReadMcp,
+  settingsRemoveKeys,
+  settingsRemoveMcp,
+  settingsSetEnv,
+  settingsSetMcp,
+  sortModels,
   warnIfFileGroupOrWorldReadable,
+  writeFileSecure,
+  writeShellRc,
 } from "../src/utils.js";
 
 function mode(file) {
@@ -147,8 +147,6 @@ describe("jsonRead", () => {
   });
 });
 
-// ── 
-(0600 for secret-bearing files) ───────────────────────────
 
 describe("writeFileSecure", () => {
   let dir;
