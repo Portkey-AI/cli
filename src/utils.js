@@ -386,7 +386,11 @@ export function readExistingConfig() {
     const baseUrl = jsonRead(filePath, "env.ANTHROPIC_BASE_URL");
     if (!baseUrl) continue;
 
-    const authToken = jsonRead(filePath, "env.ANTHROPIC_AUTH_TOKEN") || "";
+    const rawToken  = jsonRead(filePath, "env.ANTHROPIC_AUTH_TOKEN") || "";
+    // A committed config stores the env-var reference (e.g. "${PORTKEY_API_KEY}"),
+    // not a usable key. Treat that as "no key here" so discovery falls through to
+    // the real environment variable instead of using the placeholder literally.
+    const authToken = rawToken.includes("${") ? "" : rawToken;
     const headers   = jsonRead(filePath, "env.ANTHROPIC_CUSTOM_HEADERS") || "";
     const model     = jsonRead(filePath, "model") || "";
 
