@@ -1,4 +1,4 @@
-import { PORTKEY_GATEWAY, normalizeProvider, sortModels } from "./utils.js";
+import { PORTKEY_GATEWAY, sortModels } from "./utils.js";
 
 // ── Base fetch ────────────────────────────────────────────────────────────────
 
@@ -94,20 +94,20 @@ export async function fetchConfigs(portkeyKey, gateway) {
 
 /**
  * Fetch models for a Model Catalog virtual key from Portkey `GET /v1/models`.
- * Sends `x-portkey-provider: @slug` so the gateway returns models for that key
- * (same as: curl …/v1/models -H x-portkey-api-key … -H x-portkey-provider @my-slug).
+ * The provider slug is passed as the `provider` query parameter so the gateway
+ * returns only models for that virtual key (same as:
+ * curl '…/v1/models?provider=my-slug' -H x-portkey-api-key …).
  * Each item is `{ id }` — short model name for config (no `@virtual-key/` prefix).
  * Returns { data: [...], error: null } or { data: null, error: "reason" }.
  */
 export async function fetchModels(portkeyKey, providerSlug, gateway) {
   const slug   = providerSlug.replace(/^@+/, "");
   const prefix = `@${slug}/`;
-  const providerHeader = normalizeProvider(slug);
 
   try {
-    const data = await fetchJSON(`${base(gateway)}/v1/models`, {
-      "x-portkey-api-key":  portkeyKey,
-      "x-portkey-provider": providerHeader,
+    const url = `${base(gateway)}/v1/models?provider=${encodeURIComponent(slug)}`;
+    const data = await fetchJSON(url, {
+      "x-portkey-api-key": portkeyKey,
     });
 
     const rows = (data.data || []).filter(
@@ -288,9 +288,13 @@ export async function fetchSkillContent(portkeyKey, gateway, identifier) {
 
 /**
  * Send a minimal chat completion to verify the gateway is reachable.
+ * Caller must supply `model` — we no longer assume a hardcoded default.
  * Returns { ok: true, model, latencyMs } or { ok: false, error }.
  */
-export async function testGatewayConnection(portkeyKey, extraHeaders, gateway) {
+export async function testGatewayConnection(portkeyKey, extraHeaders, gateway, model) {
+  if (!model || !String(model).trim()) {
+    return { ok: false, error: "Model is required for connection test", latencyMs: 0 };
+  }
   const url = `${base(gateway)}/v1/chat/completions`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -313,7 +317,7 @@ export async function testGatewayConnection(portkeyKey, extraHeaders, gateway) {
       method: "POST",
       headers: parsedHeaders,
       body: JSON.stringify({
-        model: "claude-haiku-4-20250514",
+        model,
         max_tokens: 8,
         messages: [{ role: "user", content: "Say: ok" }],
       }),

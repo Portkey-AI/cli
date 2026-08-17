@@ -88,6 +88,41 @@ describe("fetchModels", () => {
     expect(data.map((m) => m.id)).toContain("claude-opus-4-20250514");
     expect(data.map((m) => m.id)).toContain("claude-sonnet-4-20250514");
   });
+
+  it("sends the provider slug as a `provider` query param (no x-portkey-provider header)", async () => {
+    globalThis.fetch = mockFetch({ data: [] });
+    await fetchModels("pk-test", "cohere-main-77fe39", "https://api.portkey.ai");
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    const [calledUrl, calledOpts] = globalThis.fetch.mock.calls[0];
+    expect(calledUrl).toBe(
+      "https://api.portkey.ai/v1/models?provider=cohere-main-77fe39"
+    );
+    expect(calledOpts.headers["x-portkey-api-key"]).toBe("pk-test");
+    expect(calledOpts.headers["x-portkey-provider"]).toBeUndefined();
+  });
+
+  it("strips a leading @ from the provider slug in the query string", async () => {
+    globalThis.fetch = mockFetch({ data: [] });
+    await fetchModels("pk-test", "@my-provider", "https://api.portkey.ai");
+    const [calledUrl] = globalThis.fetch.mock.calls[0];
+    expect(calledUrl).toBe("https://api.portkey.ai/v1/models?provider=my-provider");
+  });
+
+  it("only returns models the API actually lists (no curated fallbacks)", async () => {
+    globalThis.fetch = mockFetch({
+      data: [
+        { id: "@cohere-main-77fe39/command-a-03-2025", slug: "command-a-03-2025" },
+      ],
+    });
+    const { data } = await fetchModels(
+      "pk-test",
+      "cohere-main-77fe39",
+      "https://api.portkey.ai"
+    );
+    expect(data).toHaveLength(1);
+    expect(data[0].id).toBe("command-a-03-2025");
+  });
 });
 
 // ── fetchMcpServers ───────────────────────────────────────────────────────────
